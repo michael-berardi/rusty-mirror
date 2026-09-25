@@ -1,0 +1,25 @@
+[package]
+name = "rusty-mirror-cli"
+description = "Drive a Rusty Mirror from the terminal: open, eval, capture, stage, refresh, apply, audit, close."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+readme = "../../README.md"
+keywords = ["tauri", "debugging", "qa", "webview", "agents"]
+categories = ["development-tools::debugging", "command-line-utilities"]
+
+[[bin]]
+name = "rusty-mirror"
+path = "src/main.rs"
+
+[dependencies]
+rusty-mirror-core.workspace = true
+serde_json.workspace = true
+base64.workspace = true
+libc.workspace = true
+clap = { version = "4.5", features = ["derive", "env"] }
+png = "0.17"

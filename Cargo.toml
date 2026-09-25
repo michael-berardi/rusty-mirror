@@ -1,0 +1,23 @@
+[workspace]
+members = ["crates/rusty-mirror-core", "crates/rusty-mirror", "crates/rusty-mirror-cli", "examples/tally/src-tauri"]
+# The example is a real Tauri app and compiles the whole of Tauri. Opt in with
+# `cargo build -p tally`; plain `cargo test` stays quick.
+default-members = ["crates/rusty-mirror-core", "crates/rusty-mirror", "crates/rusty-mirror-cli", "examples/tally/src-tauri"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT"
+repository = "https://github.com/michael-berardi/rusty-mirror"
+homepage = "https://github.com/michael-berardi/rusty-mirror"
+authors = ["Implose Cybernetics"]
+
+[workspace.dependencies]
+rusty-mirror-core = { path = "crates/rusty-mirror-core", version = "0.1.0" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+base64 = "0.22"
+libc = "0.2"

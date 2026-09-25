@@ -1,0 +1,4 @@
+target/
+examples/tally/dist/
+examples/tally/src-tauri/gen/
+.DS_Store
