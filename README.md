@@ -9,6 +9,8 @@ for AI agents (and tired humans) to poke, screenshot and hot-swap.**
 
 *Same renderer. Same bundle. Same state. None of the consequences.*
 
+[![Latest release](https://img.shields.io/github/v/release/michael-berardi/rusty-mirror?label=release)](https://github.com/michael-berardi/rusty-mirror/releases/latest) [![MIT License](https://img.shields.io/github/license/michael-berardi/rusty-mirror)](LICENSE) ![Tauri 2.5+](https://img.shields.io/badge/Tauri-2.5%2B-24C8DB) ![Rust 1.80+](https://img.shields.io/badge/rust-1.80%2B-orange)
+
 [Why](#the-problem) · [Proof](#proof) · [Install](#install) · [Wire it up](#wire-it-up) · [Drive it](#drive-it) · [For agents](#for-agents) · [Safety](#safety) · [Security](./SECURITY.md)
 
 </div>
