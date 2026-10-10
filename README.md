@@ -257,4 +257,4 @@ macOS `scripts/e2e.sh` before opening a PR. See
 
 ## License
 
-MIT © Implose Cybernetics. See [LICENSE](./LICENSE).
+MIT © Pareto Cybernetics. See [LICENSE](./LICENSE).
