@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1 — 2026-10-16
+
+- Publisher renamed to Pareto Cybernetics in the crate metadata and licence. No functional changes.
+
 ## 0.1.0 — 2026-09-25
 
 First public release.
