@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0 — 2026-10-31
+
+- Neutralized personal/project names and provider-specific paths in README, SECURITY and integration docs.
+- Added a neutrality integration test (`crates/rusty-mirror/tests/neutrality.rs`).
+
 ## 0.1.1 — 2026-10-16
 
 - Publisher renamed to Pareto Cybernetics in the crate metadata and licence. No functional changes.
