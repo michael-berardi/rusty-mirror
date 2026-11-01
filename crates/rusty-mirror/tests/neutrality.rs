@@ -98,9 +98,14 @@ fn scan_file(path: &Path, hits: &mut Vec<String>) {
         Ok(c) => c,
         Err(_) => return, // Skip binary or unreadable files.
     };
+    // Case-insensitive: a lowercase handle (e.g. a GitHub owner in a URL) must not
+    // slip past a capitalized pattern name.
+    let lowered = content.to_lowercase();
+    let lowered_lines: Vec<&str> = lowered.lines().collect();
     for (i, line) in content.lines().enumerate() {
+        let needle = lowered_lines.get(i).copied().unwrap_or("");
         for pattern in MODEL_PATTERNS {
-            if line.contains(pattern) {
+            if needle.contains(&pattern.to_lowercase()) {
                 hits.push(format!(
                     "{}:{}: [model] {}",
                     path.display(),
@@ -110,7 +115,7 @@ fn scan_file(path: &Path, hits: &mut Vec<String>) {
             }
         }
         for pattern in PERSONAL_PATTERNS {
-            if line.contains(pattern) {
+            if needle.contains(&pattern.to_lowercase()) {
                 hits.push(format!(
                     "{}:{}: [personal] {}",
                     path.display(),
