@@ -258,3 +258,7 @@ macOS `scripts/e2e.sh` before opening a PR. See
 ## License
 
 MIT © Pareto Cybernetics. See [LICENSE](./LICENSE).
+
+---
+
+Part of [Pareto Cybernetics](https://paretocybernetics.com/): free, private, open-source tools for working with AI agents.
