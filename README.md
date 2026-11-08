@@ -9,7 +9,7 @@ for AI agents (and tired humans) to poke, screenshot and hot-swap.**
 
 *Same renderer. Same bundle. Same state. None of the consequences.*
 
-[![Latest release](https://img.shields.io/github/v/release/your-github-username/rusty-mirror?label=release)](https://github.com/your-github-username/rusty-mirror/releases/latest) [![MIT License](https://img.shields.io/github/license/your-github-username/rusty-mirror)](LICENSE) ![Tauri 2.5+](https://img.shields.io/badge/Tauri-2.5%2B-24C8DB) ![Rust 1.80+](https://img.shields.io/badge/rust-1.80%2B-orange)
+[![Latest release](https://img.shields.io/github/v/release/michael-berardi/rusty-mirror?label=release)](https://github.com/michael-berardi/rusty-mirror/releases/latest) [![MIT License](https://img.shields.io/github/license/michael-berardi/rusty-mirror)](LICENSE) ![Tauri 2.5+](https://img.shields.io/badge/Tauri-2.5%2B-24C8DB) ![Rust 1.80+](https://img.shields.io/badge/rust-1.80%2B-orange)
 
 [Why](#the-problem) · [Proof](#proof) · [Install](#install) · [Wire it up](#wire-it-up) · [Drive it](#drive-it) · [For agents](#for-agents) · [Safety](#safety) · [Security](./SECURITY.md)
 
@@ -105,7 +105,7 @@ The mirror also tried to save to disk. Nothing interesting happened.
 
 ## Install
 
-Rusty Mirror is two crates and a CLI. It is young (0.1) and lives on GitHub
+Rusty Mirror is two crates and a CLI. It is young (0.2) and lives on GitHub
 for now.
 
 ```toml
@@ -114,11 +114,11 @@ for now.
 mirror-debug = ["dep:rusty-mirror"]   # private QA builds only
 
 [dependencies]
-rusty-mirror = { git = "https://github.com/your-github-username/rusty-mirror", tag = "v0.1.0", optional = true }
+rusty-mirror = { git = "https://github.com/michael-berardi/rusty-mirror", tag = "v0.2.0", optional = true }
 ```
 
 ```sh
-cargo install --git https://github.com/your-github-username/rusty-mirror --tag v0.1.0 rusty-mirror-cli
+cargo install --git https://github.com/michael-berardi/rusty-mirror --tag v0.2.0 rusty-mirror-cli
 rusty-mirror --help
 ```
 
@@ -261,4 +261,4 @@ MIT © Pareto Cybernetics. See [LICENSE](./LICENSE).
 
 ---
 
-Part of [Pareto Cybernetics](https://paretocybernetics.com/): free, private, open-source tools for working with AI agents.
+Part of [Pareto Cybernetics](https://paretocybernetics.com/projects/rusty-mirror/): free, private, open-source tools for working with AI agents.
