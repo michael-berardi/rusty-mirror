@@ -4,7 +4,6 @@
 //!
 //! Excluded from the scan:
 //! - `Cargo.toml` / `LICENSE`: package metadata author fields and legal attribution.
-//! - `tests/`: synthetic fixtures and test data.
 //! - `examples/tally/dist/`: generated build output (gitignored).
 //! - `examples/tally/src-tauri/tauri.conf.json`: product technical identity
 //!   (bundle identifier `dev.rustymirror.tally`), explicitly allowlisted.
@@ -14,27 +13,33 @@ use std::path::{Path, PathBuf};
 
 /// Concrete model ids and provider preferences that only an operator should choose.
 const MODEL_PATTERNS: &[&str] = &[
-    "gpt-5", "gpt-6", "deepseek", "opencode-go/", "openrouter/", ":exacto", "mimo-v", "glm-",
-    "claude-", "haiku", "sonnet", "opus",
+    "gpt-5",
+    "gpt-6",
+    "deepseek",
+    "opencode-go/",
+    "openrouter/",
+    ":exacto",
+    "mimo-v",
+    "glm-",
+    "claude-",
+    "haiku",
+    "sonnet",
+    "opus",
 ];
 
 /// Names of the people and organisations Rusty Mirror was first built for: never in the shipped tool.
 const PERSONAL_PATTERNS: &[&str] = &[
     "Mike",
     "Berardi",
-    "Dana",
     "Felix",
-    "acme",
-    "acme",
     "Mouseia",
     "Liberty Design",
     "libertydesign",
-    "acme",
     "/Users/",
 ];
 
 /// Directories to skip entirely.
-const SKIP_DIRS: &[&str] = &[".git", "target", "dist", "node_modules", "tests"];
+const SKIP_DIRS: &[&str] = &[".git", "target", "dist", "node_modules"];
 
 /// Files to skip entirely.
 const SKIP_FILES: &[&str] = &[
@@ -58,7 +63,7 @@ fn should_skip(path: &Path) -> bool {
     if SKIP_FILES.contains(&file_name) {
         return true;
     }
-    if path_str.contains("tests/neutrality.rs") {
+    if path_str.ends_with("crates/rusty-mirror/tests/neutrality.rs") {
         return true;
     }
     for allow in ALLOWLIST {
@@ -69,7 +74,46 @@ fn should_skip(path: &Path) -> bool {
     false
 }
 
-fn scan_dir(dir: &Path, hits: &mut Vec<String>) {
+/// Load private terms without storing them in the repository. Missing files are
+/// expected on contributor machines; other errors should not silently disable the scan.
+fn load_private_terms(path: &Path) -> Vec<String> {
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Vec::new(),
+        Err(error) => panic!(
+            "Cannot read private terms file {}: {}",
+            path.display(),
+            error
+        ),
+    };
+    content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_lowercase)
+        .collect()
+}
+
+fn is_word(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// Match literally, with a word boundary only at each word-character end.
+fn matches_private(line: &str, term: &str) -> bool {
+    line.match_indices(term).any(|(start, matched)| {
+        let end = start + matched.len();
+        let left_ok = !term.chars().next().is_some_and(is_word)
+            || line[..start]
+                .chars()
+                .next_back()
+                .map_or(true, |c| !is_word(c));
+        let right_ok = !term.chars().next_back().is_some_and(is_word)
+            || line[end..].chars().next().map_or(true, |c| !is_word(c));
+        left_ok && right_ok
+    })
+}
+
+fn scan_dir(dir: &Path, private_terms: &[String], hits: &mut Vec<String>) {
     if !dir.exists() {
         return;
     }
@@ -86,14 +130,14 @@ fn scan_dir(dir: &Path, hits: &mut Vec<String>) {
             continue;
         }
         if path.is_dir() {
-            scan_dir(&path, hits);
+            scan_dir(&path, private_terms, hits);
         } else if path.is_file() {
-            scan_file(&path, hits);
+            scan_file(&path, private_terms, hits);
         }
     }
 }
 
-fn scan_file(path: &Path, hits: &mut Vec<String>) {
+fn scan_file(path: &Path, private_terms: &[String], hits: &mut Vec<String>) {
     let content = match fs::read_to_string(path) {
         Ok(c) => c,
         Err(_) => return, // Skip binary or unreadable files.
@@ -114,8 +158,17 @@ fn scan_file(path: &Path, hits: &mut Vec<String>) {
                 ));
             }
         }
+        if private_terms
+            .iter()
+            .any(|term| matches_private(needle, term))
+        {
+            // Do not expose the operator's private terms in test output.
+            hits.push(format!("{}:{}: [private]", path.display(), i + 1));
+        }
+        // The public repository owner is attribution, not a personal-name leak.
+        let personal_line = needle.replace("michael-berardi", "");
         for pattern in PERSONAL_PATTERNS {
-            if needle.contains(&pattern.to_lowercase()) {
+            if personal_line.contains(&pattern.to_lowercase()) {
                 hits.push(format!(
                     "{}:{}: [personal] {}",
                     path.display(),
@@ -143,12 +196,19 @@ fn shipped_files_are_provider_and_person_neutral() {
         root.join("SECURITY.md"),
     ];
 
+    let terms_path = std::env::var_os("OSS_PRIVATE_TERMS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(std::env::var_os("HOME").expect("HOME is not set"))
+                .join(".config/oss-audit/names.txt")
+        });
+    let private_terms = load_private_terms(&terms_path);
     let mut hits = Vec::new();
     for target in targets {
         if target.is_dir() {
-            scan_dir(&target, &mut hits);
+            scan_dir(&target, &private_terms, &mut hits);
         } else if target.is_file() {
-            scan_file(&target, &mut hits);
+            scan_file(&target, &private_terms, &mut hits);
         }
     }
 
@@ -161,4 +221,30 @@ fn shipped_files_are_provider_and_person_neutral() {
         }
         panic!("{}", message);
     }
+}
+
+#[test]
+fn private_terms_loader_and_scanner() {
+    let dir = std::env::temp_dir().join(format!(
+        "rusty-mirror-neutrality-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir(&dir).unwrap();
+    let terms = dir.join("terms.txt");
+    let sample = dir.join("sample.txt");
+    fs::write(&terms, "# comment\n\nzzqx-private-term\n").unwrap();
+    let loaded = load_private_terms(&terms);
+    fs::write(&sample, "Contains ZZQX-private-term!\n").unwrap();
+    let mut hits = Vec::new();
+    scan_file(&sample, &loaded, &mut hits);
+    assert_eq!(hits.len(), 1);
+    hits.clear();
+    fs::write(&sample, "A harmless sample and zzqx-private-terms.\n").unwrap();
+    scan_file(&sample, &loaded, &mut hits);
+    assert!(hits.is_empty());
+    fs::remove_dir_all(dir).unwrap();
 }
