@@ -38,9 +38,14 @@ refresh that fetches, a test that deletes the thing it was testing.
   resolved ACL at runtime; `rusty-mirror audit --capabilities` checks the
   JSON files. TOML capabilities and capabilities added in code are not
   scanned.
-- **The primary is read, and on `apply`, reloaded.** `open` and `refresh` run a
-  read-only snapshot script in the primary. `apply` navigates it after your
+- **The primary is read, and on `apply`, reloaded.** `open` runs a snapshot script in the primary; `refresh` snapshots the
+  mirror instead. Snapshot hooks are application code and must be read-only. `apply` navigates it after your
   `__RUSTY_MIRROR_BEFORE_APPLY__` hook agrees. Nothing else touches it.
+- **CSP allows same-origin requests.** The default policy allows `self` and
+  Tauri IPC. It does not deny every network request, especially with a dev
+  server, and a custom `.csp(...)` can weaken it.
+- **Audits are marker scans.** Binary scans skip symlinks; capability scans
+  inspect JSON window/webview patterns. A clean result is not a security proof.
 - **Captures are sensitive.** They show whatever your app shows. The CLI writes
   them 0600 and never overwrites; where they go, and how long they live, is
   up to you.

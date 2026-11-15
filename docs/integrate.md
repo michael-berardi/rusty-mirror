@@ -1,8 +1,7 @@
 # Integrating Rusty Mirror
 
-About fifteen minutes, most of which is deciding which commands are
-read-only. [Tally](../examples/tally) is the complete worked example; every
-snippet below comes from it or was checked against it.
+[Tally](../examples/tally) is the complete worked example. Start by deciding
+which native commands are read-only.
 
 ## 1. Add a private feature
 
@@ -88,8 +87,8 @@ if (__RUSTY_MIRROR__) {
 
 `seed` is `{ state, hooked, storage: { local, session } }`. Hydrate what makes
 the view identical; skip what would start work (timers that poll, sockets that
-connect). The mirror's CSP will refuse outbound connections anyway, but a quiet
-mirror is easier to reason about.
+connect). The default CSP restricts outbound connections but allows same-origin
+requests; avoid starting background work in the mirror.
 
 ### Vite
 
@@ -101,9 +100,9 @@ export default defineConfig({
 });
 ```
 
-`RUSTY_MIRROR=1 vite build` keeps the block; a plain build folds
-`if (false)` away, strings and all. Verified with Vite 7: zero markers in the
-consumer bundle.
+`RUSTY_MIRROR=1 vite build` keeps the block; a plain production build should
+remove it through dead-code elimination. Audit your generated bundle to
+confirm that no mirror markers remain.
 
 ### No bundler
 
@@ -134,5 +133,5 @@ vite build && cargo build --release
 rusty-mirror audit dist target/release/your-app --capabilities src-tauri/capabilities
 ```
 
-Exit `0` means no mirror markers anywhere. Exit `3` means something leaked;
+Exit `0` means no known mirror markers were found in scanned regular files. Exit `3` means something leaked;
 do not ship it. Run the same audit against the signed `.app` if you have one.

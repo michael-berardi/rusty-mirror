@@ -1,7 +1,8 @@
 # `rusty-mirror` CLI reference
 
-Every command prints exactly one JSON document on stdout. Human chatter, when
-there is any, goes to stderr.
+Operational commands print a JSON result on stdout. Help, version and argument
+parsing messages use plain text. `run` also inherits its child's stdout/stderr,
+so its stdout may contain more than the final JSON document.
 
 | Exit | Meaning |
 | --- | --- |
@@ -10,11 +11,15 @@ there is any, goes to stderr.
 | `2` | Usage error |
 | `3` | `audit` found mirror code or mirror permissions |
 
+`run` preserves a failed child's numeric exit code (1–255); a signal or spawn
+failure becomes 1. A cleanup failure also makes the command fail. Thus a
+`run` exit of 3 need not mean an audit finding.
+
 ## Choosing the app
 
 `--app <identifier>` (or `RUSTY_MIRROR_APP`) selects the app. Omit it when
 exactly one mirror-enabled app is running. `--socket` / `RUSTY_MIRROR_SOCKET`
-overrides the socket path. `RUSTY_MIRROR_HOME` moves the whole root (default
+overrides the socket path, but still requires `--app` or unambiguous app discovery. `RUSTY_MIRROR_HOME` moves the whole root (default
 `~/.rusty-mirror`); keep it short, as unix socket paths top out near 104 bytes.
 
 ## Commands
@@ -33,7 +38,7 @@ overrides the socket path. `RUSTY_MIRROR_HOME` moves the whole root (default
 | `rollback` | Refresh back to the previous revision (mirror only) |
 | `apply` | Reload the primary window on the mirror's verified revision |
 | `close` | Destroy the mirror and wait until it is really gone |
-| `run [--seconds N] -- CMD…` | Open, run CMD with `RUSTY_MIRROR_APP` set, always close |
+| `run [--seconds N] [--size WxH] -- CMD…` | Open, run CMD with `RUSTY_MIRROR_APP` and `RUSTY_MIRROR_SOCKET` set, then attempt to close |
 | `audit PATH… [--capabilities DIR]` | Scan builds and capability files for anything mirror-shaped |
 
 ### `eval`
@@ -64,7 +69,8 @@ screen. Open the image and look.
 
 ### `stage`
 
-Refuses symlinks, hidden or key-like files, absolute asset URLs, files over
+Refuses symlinks, hidden or key-like files, absolute `src`/`href` URLs found
+in generated `index.html`, files over
 16 MiB, builds over 64 MiB or 4096 files, and any build without the snapshot
 hook (that is a consumer build, and staging it would test the wrong thing).
 Staging the same bytes twice returns the existing revision.

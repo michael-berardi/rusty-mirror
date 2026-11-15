@@ -5,10 +5,11 @@ Thanks for considering it. Small, focused pull requests are easiest to review.
 ## Checks
 
 ```sh
+examples/tally/build.sh  # required before compiling the workspace
 cargo fmt --all --check
-cargo clippy --workspace --all-targets --features tally/mirror-debug
-cargo test
-scripts/e2e.sh        # macOS: builds Tally, runs it off-screen, drives every command
+cargo clippy --workspace --all-targets --features tally/mirror-debug -j4
+cargo test -j4
+CARGO_BUILD_JOBS=4 scripts/e2e.sh  # macOS: builds Tally, runs it off-screen, drives every command
 ```
 
 The end-to-end script launches only its own hidden app, keeps everything in a
