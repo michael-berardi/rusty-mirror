@@ -1,5 +1,7 @@
 # Rusty Mirror
 
+[![Latest release](https://img.shields.io/github/v/release/michael-berardi/rusty-mirror?label=release)](https://github.com/michael-berardi/rusty-mirror/releases/latest) [![MIT License](https://img.shields.io/github/license/michael-berardi/rusty-mirror)](LICENSE) ![Tauri 2.5+](https://img.shields.io/badge/Tauri-2.5%2B-24C8DB) ![Current stable Rust](https://img.shields.io/badge/rust-stable-orange)
+
 Rusty Mirror gives Tauri developers and UI-testing agents a hidden second
 window inside their app. It uses the app's native webview and frontend,
 seeded with a snapshot of the primary window's state. Inspect the DOM, take
@@ -124,3 +126,7 @@ app off-screen to test the native workflow. See [CONTRIBUTING.md](CONTRIBUTING.m
 ## License
 
 [MIT](LICENSE).
+
+---
+
+Part of [Pareto Cybernetics](https://paretocybernetics.com/projects/rusty-mirror/): free, private, open-source tools for working with AI agents.
