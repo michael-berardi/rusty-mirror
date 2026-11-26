@@ -125,6 +125,19 @@ See the [security model](docs/security.md) and [reporting policy](SECURITY.md).
 | Linux x86_64 | CLI download; core and CLI use Unix APIs, but plugin and capture support are not validated here |
 | Windows | Unsupported: no socket transport, no Windows installer |
 
+## Updates
+
+On a terminal, the CLI tells you once a day when a newer release exists.
+`rusty-mirror update` installs it with Cargo, and automatic installs stay off
+until you run `rusty-mirror update --auto on`. See [updates](docs/updates.md).
+
+## Privacy
+
+- No telemetry, analytics or identifiers. Mirrors and captures stay on your machine.
+- The only request made on its own is the daily update check: one anonymous GET of the public release record.
+- It is off in CI, agent shells and non-terminal use, and with `RUSTY_MIRROR_NO_UPDATE_CHECK=1`.
+- Details: [PRIVACY.md](PRIVACY.md).
+
 ## Contributing
 
 From a fresh checkout:

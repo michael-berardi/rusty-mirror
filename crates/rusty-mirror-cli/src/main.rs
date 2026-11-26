@@ -1,6 +1,8 @@
 //! `rusty-mirror`: the agent-facing end of the mirror. Every command prints one
 //! JSON document on stdout. Exit codes: 0 ok, 1 failed, 2 usage, 3 audit found
-//! mirror code where it must not be.
+//! mirror code where it must not be. `update --check` uses 10 for available.
+mod update;
+
 use base64::Engine;
 use clap::{Parser, Subcommand};
 use rusty_mirror_core::{audit, paths, protocol, protocol::Request, stage};
@@ -12,6 +14,9 @@ use std::{
     process::ExitCode,
     time::Duration,
 };
+
+/// Hidden subcommand for the detached update check and opted-in install.
+const UPDATE_HELPER: &str = "__update-background";
 
 #[derive(Parser)]
 #[command(
@@ -95,6 +100,29 @@ enum Command {
     },
     /// Check the local setup and list apps with a live control socket.
     Doctor,
+    /// Install the newest release of this CLI with Cargo (see docs/updates.md).
+    Update {
+        /// Report only. Exit 0 up to date, 10 update available, 1 check failed.
+        #[arg(long, group = "action")]
+        check: bool,
+        /// Hide this release's notice until a newer one comes out.
+        #[arg(long, group = "action")]
+        skip: bool,
+        /// Automatic installs: on, off (also deletes the update cache) or status.
+        #[arg(long, group = "action", value_name = "on|off|status", value_parser = ["on", "off", "status"])]
+        auto: Option<String>,
+        /// Daily check and notice: on, off or status.
+        #[arg(long, group = "action", value_name = "on|off|status", value_parser = ["on", "off", "status"])]
+        notify: Option<String>,
+        /// Reinstall the version that ran before the last update.
+        #[arg(long, group = "action")]
+        rollback: bool,
+    },
+    #[command(name = UPDATE_HELPER, hide = true)]
+    UpdateHelper {
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 fn parse_size(s: &str) -> Result<(u32, u32), String> {
@@ -107,11 +135,11 @@ fn parse_size(s: &str) -> Result<(u32, u32), String> {
     Ok(size)
 }
 
-fn print(value: &Value) {
+pub(crate) fn print(value: &Value) {
     println!("{}", serde_json::to_string_pretty(value).unwrap());
 }
 
-fn fail(error: impl std::fmt::Display) -> ExitCode {
+pub(crate) fn fail(error: impl std::fmt::Display) -> ExitCode {
     print(&json!({"ok": false, "error": error.to_string()}));
     ExitCode::from(1)
 }
@@ -164,10 +192,17 @@ fn call(t: &Target, request: Request) -> Result<Value, String> {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    match run(&cli) {
+    let code = match run(&cli) {
         Ok(code) => code,
         Err(error) => fail(error),
+    };
+    if !matches!(
+        cli.command,
+        Command::Update { .. } | Command::UpdateHelper { .. }
+    ) {
+        update::after_command();
     }
+    code
 }
 
 fn run(cli: &Cli) -> Result<ExitCode, String> {
@@ -177,6 +212,27 @@ fn run(cli: &Cli) -> Result<ExitCode, String> {
             capabilities,
         } => return Ok(audit_cmd(paths, capabilities.as_deref())),
         Command::Doctor => return Ok(doctor(cli)),
+        Command::Update {
+            check,
+            skip,
+            auto,
+            notify,
+            rollback,
+        } => {
+            let action = match (auto, notify) {
+                _ if *check => update::Action::Check,
+                _ if *skip => update::Action::Skip,
+                _ if *rollback => update::Action::Rollback,
+                (Some(value), _) => update::Action::Auto(value),
+                (_, Some(value)) => update::Action::Notify(value),
+                _ => update::Action::Install,
+            };
+            return Ok(update::command(action));
+        }
+        Command::UpdateHelper { check } => {
+            update::background(*check);
+            return Ok(ExitCode::SUCCESS);
+        }
         Command::Stage { dist } => {
             let t = target_for_stage(cli)?;
             let s = stage::stage(&t, dist)?;
@@ -233,7 +289,11 @@ fn run(cli: &Cli) -> Result<ExitCode, String> {
             size,
             command,
         } => return run_session(&t, *seconds, *size, command),
-        Command::Audit { .. } | Command::Doctor | Command::Stage { .. } => unreachable!(),
+        Command::Audit { .. }
+        | Command::Doctor
+        | Command::Stage { .. }
+        | Command::Update { .. }
+        | Command::UpdateHelper { .. } => unreachable!(),
     };
     let result = call(&t, request)?;
     print(&json!({"ok": true, "result": result}));

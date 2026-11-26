@@ -2653,6 +2653,7 @@ dependencies = [
  "libc",
  "png 0.17.16",
  "rusty-mirror-core",
+ "serde",
  "serde_json",
 ]
 
