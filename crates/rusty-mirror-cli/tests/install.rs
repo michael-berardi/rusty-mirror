@@ -8,8 +8,11 @@ use std::{
     os::unix::fs::PermissionsExt,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
+    sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
+
+static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const MARKER: &str = "# rusty-mirror installer shim";
@@ -21,8 +24,9 @@ impl TempTree {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
+        let serial = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
         let path = env::temp_dir().join(format!(
-            "rusty-mirror-install-{}-{nanos}",
+            "rusty-mirror-install-{}-{nanos}-{serial}",
             std::process::id()
         ));
         fs::create_dir_all(&path).unwrap();
