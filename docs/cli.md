@@ -30,7 +30,7 @@ overrides the socket path, but still requires `--app` or unambiguous app discove
 | `state` | Open? Visible? Focused? URL, revision, size, monitors, seconds left |
 | `open [--seconds N] [--size WxH]` | Snapshot the primary, open the invisible mirror. N is 1–3600 (default 900) |
 | `eval BODY` / `eval -f FILE` / `eval -` | Run an async function body in the mirror. `return` a JSON value |
-| `capture OUT.png` | Native snapshot of the hidden webview. 0600 file, private parent directory, never overwritten; flags flat images |
+| `capture OUT.png` | Native snapshot of the hidden webview. 0600 file, missing parents created 0700, never overwritten; flags flat images |
 | `resize WxH` | Logical size, 200x200 to 7680x4320 |
 | `screen N` | Move the invisible mirror to monitor N to test another scale factor |
 | `stage DIST` | Copy a built frontend into an immutable, hashed revision. Offline |
@@ -66,7 +66,7 @@ exit code to match. The limit is 32 KiB of script and 8 seconds of runtime.
 
 `looksBlank` is a floor, not a verdict: a non-blank PNG can still be the wrong
 screen. Open the image and look. Missing parent directories are created 0700;
-an existing parent must be private (0700), or capture refuses the path.
+an existing parent directory is used as it is.
 
 ### `stage`
 

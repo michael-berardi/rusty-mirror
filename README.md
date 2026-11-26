@@ -120,9 +120,8 @@ Local storage:
 - `~/.rusty-mirror/<app-id>/control.sock` (0600): the same-user control socket.
 - `~/.rusty-mirror/<app-id>/hot-assets/<sha256>/`: frontends you staged. Dirs
   0700, files 0600, kept until you delete them.
-- Captures at the path you pass to `capture`: files 0600, parent directories
-  created 0700. An existing parent directory must be private. Nothing deletes
-  captures automatically.
+- Captures at the path you pass to `capture`: files 0600; missing parent
+  directories are created 0700. Nothing deletes captures automatically.
 - The Tally example's counter in its app data directory or `$TALLY_DATA`: a
   0600 file in a 0700 directory.
 

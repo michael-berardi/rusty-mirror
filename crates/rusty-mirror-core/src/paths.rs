@@ -122,9 +122,9 @@ pub fn check_socket(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Create the parent of a stored file 0700, or require an existing parent to
-/// be private. Missing ancestors are created 0700 too; ancestors that already
-/// exist (e.g. `$HOME` or `/tmp`) are left alone.
+/// Create any missing parent directories of a stored file with mode 0700.
+/// Directories that already exist (e.g. `$HOME`, `/tmp` or the current
+/// project) are left as they are; the file itself is written 0600.
 pub fn ensure_private_parent(file: &Path) -> Result<(), String> {
     let Some(parent) = file.parent().filter(|p| !p.as_os_str().is_empty()) else {
         return Ok(());
@@ -152,7 +152,11 @@ pub fn ensure_private_parent(file: &Path) -> Result<(), String> {
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
             .map_err(|e| e.to_string())?;
     }
-    check_private_dir(parent)
+    let m = std::fs::metadata(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+    if !m.is_dir() {
+        return Err(format!("{} is not a directory", parent.display()));
+    }
+    Ok(())
 }
 
 pub fn euid() -> u32 {
@@ -209,7 +213,10 @@ mod tests {
         let public = base.join("public");
         std::fs::create_dir(&public).unwrap();
         std::fs::set_permissions(&public, std::fs::Permissions::from_mode(0o755)).unwrap();
-        assert!(ensure_private_parent(&public.join("shot.png")).is_err());
+        // An existing, user-chosen folder is accepted unchanged.
+        ensure_private_parent(&public.join("shot.png")).unwrap();
+        let mode = std::fs::symlink_metadata(&public).unwrap().mode();
+        assert_eq!(mode & 0o777, 0o755);
         std::fs::remove_dir_all(base).unwrap();
     }
 }

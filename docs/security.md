@@ -47,7 +47,7 @@ refresh that fetches, a test that deletes the thing it was testing.
 - **Audits are marker scans.** Binary scans skip symlinks; capability scans
   inspect JSON window/webview patterns. A clean result is not a security proof.
 - **Captures are sensitive.** They show whatever your app shows. The CLI writes
-  them 0600 in a private (0700) parent directory and never overwrites; where
+  them 0600, creates missing parent directories 0700 and never overwrites; where
   they go, and how long they live, is up to you. Delete them when done.
 - **Staged revisions are code.** They load only from your private root and are
   re-hashed on load, but anyone who can write there as you can already run
