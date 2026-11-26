@@ -26,8 +26,8 @@ and writes a shim to `~/.local/bin/rusty-mirror`; add that directory to your
 PATH if needed. It will not replace a `rusty-mirror` it did not install. To
 change the destination or select a build, set `RUSTY_MIRROR_HOME`,
 `RUSTY_MIRROR_BIN_DIR`, `RUSTY_MIRROR_VERSION` (default: latest) or
-`RUSTY_MIRROR_RELEASE_BASE` (a local release directory or HTTP mirror, used by
-tests). The macOS build is a universal binary, Developer ID signed and
+`RUSTY_MIRROR_RELEASE_BASE` (a local release directory, an `http(s)://` or
+`file://` URL, used by tests). The macOS build is a universal binary, Developer ID signed and
 notarized; the Linux x86_64 build is a plain binary.
 
 Alternatively, install the CLI with Cargo:

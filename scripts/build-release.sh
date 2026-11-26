@@ -9,7 +9,17 @@
 # No identity or profile name is stored in the repository. Run from a clean checkout, on a Mac.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+ROOT="$(pwd -P)"
 OUT="${1:-dist/release}"
+
+# Never let a bad OUT argument turn the cleanup into a checkout, home or root wipe.
+fail_out() { echo "build-release: OUT must resolve under dist/ (got $1); refusing to remove it" >&2; exit 1; }
+command -v python3 >/dev/null || { echo "build-release: python3 is needed to resolve OUT" >&2; exit 1; }
+out_abs=$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$OUT")
+dist_abs=$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$ROOT/dist")
+case "$out_abs" in "$ROOT"|/|"$HOME"|"$dist_abs") fail_out "$out_abs" ;; esac
+case "$out_abs" in "$dist_abs"/*) ;; *) fail_out "$out_abs" ;; esac
+OUT="$out_abs"
 
 [ -z "$(git status --porcelain --untracked-files=no)" ] || { echo "build-release: the working tree has changes; build from a clean checkout" >&2; exit 1; }
 [ "$(uname -s)" = Darwin ] || { echo "build-release: macOS is required for the signed, notarized binary" >&2; exit 1; }

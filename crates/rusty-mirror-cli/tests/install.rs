@@ -231,17 +231,9 @@ fn check_release(
     let _ = asset;
 }
 
-#[test]
-fn installer_from_local_release() {
-    let Some(asset) = asset_name() else {
-        eprintln!("skipped: no installer asset for this platform");
-        return;
-    };
-    let temp = TempTree::new();
-    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let release = temp.child("release");
-    let stage = temp.child("stage");
-    fs::create_dir_all(&release).unwrap();
+fn make_release(repo: &Path, release: &Path, asset: &str) {
+    fs::create_dir_all(release).unwrap();
+    let stage = release.with_file_name("stage");
     fs::create_dir_all(stage.join("rusty-mirror")).unwrap();
 
     // A real CLI binary, with the same layout and metadata files the release builder ships.
@@ -272,6 +264,18 @@ fn installer_from_local_release() {
         checksum(&release.join("install.sh"))
     );
     fs::write(release.join("SHA256SUMS"), sums).unwrap();
+}
+
+#[test]
+fn installer_from_local_release() {
+    let Some(asset) = asset_name() else {
+        eprintln!("skipped: no installer asset for this platform");
+        return;
+    };
+    let temp = TempTree::new();
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let release = temp.child("release");
+    make_release(&repo, &release, asset);
 
     let server = Server::new(&release);
     let home = temp.child("home");
@@ -312,5 +316,138 @@ fn installer_from_local_release() {
         eprintln!("installer: verified dist/release assets end to end");
     } else {
         eprintln!("installer: dist/release not built; verified a local synthetic release");
+    }
+}
+
+#[test]
+fn installer_from_local_directory_and_file_url() {
+    let Some(asset) = asset_name() else {
+        eprintln!("skipped: no installer asset for this platform");
+        return;
+    };
+    let temp = TempTree::new();
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let release = temp.child("release");
+    make_release(&repo, &release, asset);
+    let installer = release.join("install.sh");
+
+    // A file:// URL still goes through the download path, with no HTTP server.
+    let file_home = temp.child("file-home");
+    let file_bin = temp.child("file-bin");
+    fs::create_dir_all(&file_home).unwrap();
+    let out = install(
+        &installer,
+        &format!("file://{}", release.display()),
+        &file_home,
+        &file_bin,
+    );
+    assert!(
+        out.status.success(),
+        "file:// install failed:\n{}\n{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_installed(&file_bin);
+
+    // A local directory base copies the files, and keeps the same safety checks.
+    let home = temp.child("home");
+    let bin = temp.child("bin");
+    fs::create_dir_all(&home).unwrap();
+    check_release(
+        &release,
+        &home,
+        &bin,
+        asset,
+        release.to_str().unwrap(),
+        &installer,
+    );
+
+    let absent = temp.child("absent").display().to_string();
+    let bad = install(
+        &installer,
+        &absent,
+        &temp.child("bad-home"),
+        &temp.child("bad-bin"),
+    );
+    assert!(
+        !bad.status.success(),
+        "installer accepted a missing base directory"
+    );
+    assert!(
+        String::from_utf8_lossy(&bad.stderr)
+            .contains("must be an existing directory or an http(s)/file URL"),
+        "unexpected error: {}",
+        String::from_utf8_lossy(&bad.stderr)
+    );
+}
+
+#[test]
+fn installer_rejects_non_x86_64_linux() {
+    let Some(asset) = asset_name() else {
+        eprintln!("skipped: no installer asset for this platform");
+        return;
+    };
+    let temp = TempTree::new();
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let release = temp.child("release");
+    make_release(&repo, &release, asset);
+
+    // Pretend to be Linux/aarch64 without touching the host's uname.
+    let stub = temp.child("stub-bin");
+    fs::create_dir_all(&stub).unwrap();
+    let uname = stub.join("uname");
+    fs::write(
+        &uname,
+        "#!/bin/sh\nif [ \"$1\" = -s ]; then echo Linux; else echo aarch64; fi\n",
+    )
+    .unwrap();
+    fs::set_permissions(&uname, fs::Permissions::from_mode(0o755)).unwrap();
+    let home = temp.child("home");
+    let bin = temp.child("bin");
+    fs::create_dir_all(&home).unwrap();
+    let out = Command::new("sh")
+        .arg(release.join("install.sh"))
+        .env(
+            "PATH",
+            format!("{}:{}", stub.display(), env::var("PATH").unwrap()),
+        )
+        .env("HOME", &home)
+        .env("RUSTY_MIRROR_HOME", home.join("tool"))
+        .env("RUSTY_MIRROR_BIN_DIR", &bin)
+        .env("RUSTY_MIRROR_RELEASE_BASE", &release)
+        .env_remove("RUSTY_MIRROR_VERSION")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "installer accepted Linux/aarch64");
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("Linux release builds are x86_64 only"),
+        "unexpected error: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        !bin.join("rusty-mirror").exists(),
+        "bad platform installed a shim"
+    );
+}
+
+#[test]
+fn build_release_rejects_unsafe_out() {
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let script = repo.join("scripts/build-release.sh");
+    let home = env::var("HOME").unwrap();
+    for bad in ["/".to_string(), ".".to_string(), home] {
+        let out = Command::new("bash")
+            .arg(&script)
+            .arg(&bad)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert!(!out.status.success(), "build-release accepted OUT={bad}");
+        assert!(
+            String::from_utf8_lossy(&out.stderr).contains("OUT must resolve under dist/"),
+            "unexpected error for {bad}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
     }
 }

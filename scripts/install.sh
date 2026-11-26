@@ -6,7 +6,7 @@
 # installer did not create is never replaced.
 # Environment: RUSTY_MIRROR_HOME (default ~/.rusty-mirror), RUSTY_MIRROR_BIN_DIR (default
 # ~/.local/bin), RUSTY_MIRROR_VERSION (default: latest, e.g. 0.3.0),
-# RUSTY_MIRROR_RELEASE_BASE (override the download base URL, used by tests).
+# RUSTY_MIRROR_RELEASE_BASE (override with a local directory, http(s)/file URL, used by tests).
 set -eu
 
 REPO="michael-berardi/rusty-mirror"
@@ -15,19 +15,36 @@ HOME_DIR="${RUSTY_MIRROR_HOME:-$HOME/.rusty-mirror}"
 BIN_DIR="${RUSTY_MIRROR_BIN_DIR:-$HOME/.local/bin}"
 case "$HOME_DIR" in /*) ;; *) HOME_DIR="$(pwd)/$HOME_DIR" ;; esac
 case "$BIN_DIR" in /*) ;; *) BIN_DIR="$(pwd)/$BIN_DIR" ;; esac
-if [ -n "${RUSTY_MIRROR_RELEASE_BASE:-}" ]; then BASE="$RUSTY_MIRROR_RELEASE_BASE"
+say() { printf '%s\n' "$*"; }
+die() { printf 'rusty-mirror install: %s\n' "$*" >&2; exit 1; }
+
+LOCAL_BASE=""
+if [ -n "${RUSTY_MIRROR_RELEASE_BASE:-}" ]; then
+  case "$RUSTY_MIRROR_RELEASE_BASE" in
+    http://*|https://*|file://*) BASE="$RUSTY_MIRROR_RELEASE_BASE" ;;
+    *) [ -d "$RUSTY_MIRROR_RELEASE_BASE" ] || die "RUSTY_MIRROR_RELEASE_BASE must be an existing directory or an http(s)/file URL: $RUSTY_MIRROR_RELEASE_BASE"
+       BASE=$(CDPATH= cd -- "$RUSTY_MIRROR_RELEASE_BASE" && pwd -P); LOCAL_BASE=1 ;;
+  esac
 elif [ -n "${RUSTY_MIRROR_VERSION:-}" ]; then BASE="https://github.com/$REPO/releases/download/v${RUSTY_MIRROR_VERSION#v}"
 else BASE="https://github.com/$REPO/releases/latest/download"; fi
 BASE="${BASE%/}"
 SHIM="$BIN_DIR/rusty-mirror"
 
-say() { printf '%s\n' "$*"; }
-die() { printf 'rusty-mirror install: %s\n' "$*" >&2; exit 1; }
-
 if command -v curl >/dev/null 2>&1; then fetch() { curl -fsSL --retry 3 -o "$2" "$1" || die "download failed: $1"; }
 elif command -v wget >/dev/null 2>&1; then fetch() { wget -q -O "$2" "$1" || die "download failed: $1"; }
 else die "needs curl or wget"; fi
 command -v tar >/dev/null 2>&1 || die "needs tar"
+command -v cp >/dev/null 2>&1 || die "needs cp"
+
+# release_file <name> <destination>: copy from a local directory or fetch a URL.
+release_file() {
+  if [ -n "$LOCAL_BASE" ]; then
+    [ -f "$BASE/$1" ] || die "no $1 in the local release directory $BASE"
+    cp "$BASE/$1" "$2" || die "cannot copy $BASE/$1"
+  else
+    fetch "$BASE/$1" "$2"
+  fi
+}
 
 if command -v sha256sum >/dev/null 2>&1; then sha256() { sha256sum "$1" | cut -d' ' -f1; }
 elif command -v shasum >/dev/null 2>&1; then sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
@@ -57,6 +74,7 @@ case "$(uname -m)" in
   arm64|aarch64) arch=aarch64 ;;
   *) die "unsupported CPU $(uname -m)" ;;
 esac
+if [ "$os" = linux ] && [ "$arch" != x86_64 ]; then die 'Linux release builds are x86_64 only'; fi
 if [ "$os" = darwin ]; then asset="rusty-mirror-darwin-universal.tar.gz"
 else asset="rusty-mirror-linux-$arch.tar.gz"; fi
 
@@ -72,9 +90,9 @@ expect() {
   [ "$(sha256 "$1")" = "$want" ] || die "checksum mismatch for $2; nothing was installed"
 }
 
-say "Downloading Rusty Mirror ($asset)..."
-fetch "$BASE/$asset" "$TMP/$asset"
-fetch "$BASE/SHA256SUMS" "$TMP/SHA256SUMS"
+say "Fetching Rusty Mirror ($asset)..."
+release_file "$asset" "$TMP/$asset"
+release_file SHA256SUMS "$TMP/SHA256SUMS"
 expect "$TMP/$asset" "$asset" "$TMP/SHA256SUMS"
 mkdir "$TMP/src"
 tar -xzf "$TMP/$asset" -C "$TMP/src" || die "cannot unpack the download"
