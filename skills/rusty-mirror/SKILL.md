@@ -38,11 +38,11 @@ evidence from any of those as evidence about something else.
 ```sh
 rusty-mirror open --seconds 900
 rusty-mirror eval 'return {ready: document.readyState, title: document.title}'
-rusty-mirror capture shots/<task>-before.png
+rusty-mirror capture /tmp/screenshots/<task>-before.png
 # fix the real source, rebuild the frontend with the mirror gate on
 rusty-mirror stage <dist>
 rusty-mirror refresh <revision>          # navigation is async: poll with eval
-rusty-mirror capture shots/<task>-after.png
+rusty-mirror capture /tmp/screenshots/<task>-after.png
 rusty-mirror close
 ```
 
