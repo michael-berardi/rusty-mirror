@@ -122,6 +122,39 @@ pub fn check_socket(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Create the parent of a stored file 0700, or require an existing parent to
+/// be private. Missing ancestors are created 0700 too; ancestors that already
+/// exist (e.g. `$HOME` or `/tmp`) are left alone.
+pub fn ensure_private_parent(file: &Path) -> Result<(), String> {
+    let Some(parent) = file.parent().filter(|p| !p.as_os_str().is_empty()) else {
+        return Ok(());
+    };
+    let mut missing = Vec::new();
+    let mut current = parent;
+    loop {
+        match std::fs::symlink_metadata(current) {
+            Ok(_) => break,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                missing.push(current.to_path_buf());
+                match current.parent() {
+                    Some(next) if !next.as_os_str().is_empty() => current = next,
+                    _ => break,
+                }
+            }
+            Err(e) => return Err(format!("{}: {e}", current.display())),
+        }
+    }
+    for dir in missing.into_iter().rev() {
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(&dir)
+            .map_err(|e| format!("create {}: {e}", dir.display()))?;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+            .map_err(|e| e.to_string())?;
+    }
+    check_private_dir(parent)
+}
+
 pub fn euid() -> u32 {
     // SAFETY: geteuid has no preconditions and cannot fail.
     unsafe { libc::geteuid() }
@@ -154,5 +187,29 @@ mod tests {
         for bad in ["", ".hidden", "../up", "a/b", "sp ace", &"x".repeat(129)] {
             assert!(validate_app_id(bad).is_err(), "{bad:?} accepted");
         }
+    }
+
+    #[test]
+    fn stored_file_parents_are_private() {
+        let base = std::env::temp_dir().join(format!(
+            "rusty-mirror-parent-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let file = base.join("deep/nested/shot.png");
+        ensure_private_parent(&file).unwrap();
+        for dir in [base.join("deep"), base.join("deep/nested")] {
+            let mode = std::fs::symlink_metadata(&dir).unwrap().mode();
+            assert_eq!(mode & 0o777, 0o700, "{}", dir.display());
+        }
+
+        let public = base.join("public");
+        std::fs::create_dir(&public).unwrap();
+        std::fs::set_permissions(&public, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(ensure_private_parent(&public.join("shot.png")).is_err());
+        std::fs::remove_dir_all(base).unwrap();
     }
 }

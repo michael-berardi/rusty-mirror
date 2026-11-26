@@ -1,6 +1,5 @@
 # Rusty Mirror
 
-[![Latest release](https://img.shields.io/github/v/release/michael-berardi/rusty-mirror?label=release)](https://github.com/michael-berardi/rusty-mirror/releases/latest) [![MIT License](https://img.shields.io/github/license/michael-berardi/rusty-mirror)](LICENSE) ![Tauri 2.5+](https://img.shields.io/badge/Tauri-2.5%2B-24C8DB) ![Current stable Rust](https://img.shields.io/badge/rust-stable-orange)
 
 Rusty Mirror gives Tauri developers and UI-testing agents a hidden second
 window inside their app. It uses the app's native webview and frontend,
@@ -17,7 +16,7 @@ still have the app's full permissions.
 Install the CLI with Cargo:
 
 ```sh
-cargo install --git https://github.com/michael-berardi/rusty-mirror --tag v0.2.0 --locked rusty-mirror-cli
+cargo install --git https://github.com/michael-berardi/rusty-mirror --tag v0.2.1 --locked rusty-mirror-cli
 rusty-mirror --help
 ```
 
@@ -33,7 +32,7 @@ The CLI needs a mirror-enabled build of your app. Add the optional plugin:
 mirror-debug = ["dep:rusty-mirror"]
 
 [dependencies]
-rusty-mirror = { git = "https://github.com/michael-berardi/rusty-mirror", tag = "v0.2.0", optional = true }
+rusty-mirror = { git = "https://github.com/michael-berardi/rusty-mirror", tag = "v0.2.1", optional = true }
 ```
 
 Follow [the integration guide](docs/integrate.md) to install the asset
@@ -107,6 +106,37 @@ See the [security model](docs/security.md) and [reporting policy](SECURITY.md).
 | macOS 14+ | Native mirror and `WKWebView.takeSnapshot` capture; no Screen Recording permission needed |
 | Linux | Core and CLI use Unix APIs; plugin and capture support are not validated here |
 | Windows | Unsupported: no socket transport |
+
+## Privacy
+
+Rusty Mirror itself makes no network requests. There is no telemetry, analytics,
+crash reporting, update check or unique machine identifier. The example UI loads
+no remote fonts, scripts or CDNs. Installing from GitHub and adding the git
+dependency download source code with Cargo when you ask for it; there is no
+phone-home afterwards.
+
+Local storage:
+
+- `~/.rusty-mirror/<app-id>/control.sock` (0600): the same-user control socket.
+- `~/.rusty-mirror/<app-id>/hot-assets/<sha256>/`: frontends you staged. Dirs
+  0700, files 0600, kept until you delete them.
+- Captures at the path you pass to `capture`: files 0600, parent directories
+  created 0700. An existing parent directory must be private. Nothing deletes
+  captures automatically.
+- The Tally example's counter in its app data directory or `$TALLY_DATA`: a
+  0600 file in a 0700 directory.
+
+Opening a mirror copies the primary's `localStorage`, `sessionStorage` and any
+state your snapshot hook returns into memory only. Rusty Mirror does not write
+that copy to disk; closing or expiry destroys it. A capture PNG can show
+whatever the app displays.
+
+To delete it all: close the mirror, then `rm -rf ~/.rusty-mirror`, remove your
+capture files and, if you used Tally, its data file. The mirror's default CSP
+limits webview traffic to the app's own origin and Tauri IPC; it is not an
+offline sandbox, and a custom `.csp(...)` can widen it. If your app talks to a
+service you configured, that provider receives what your app sends; Rusty
+Mirror does not proxy, log or report it.
 
 ## Contributing
 

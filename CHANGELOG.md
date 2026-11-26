@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.1 — 2026-11-26
+
+Privacy hardening: captures now require a private parent directory (created
+0700) in addition to their 0600 file mode; the Tally example writes its data
+file 0600 in a 0700 directory; the unattended script uses `umask 077`.
+
+Added a README Privacy section, removed third-party release badges from the
+README, and added a test that fails if telemetry packages, third-party
+endpoints or a non-local default CSP are reintroduced. No telemetry or update
+checks were present; nothing was removed from user configuration.
+
 ## 0.2.0 — 2026-10-31
 
 - Neutralized personal/project names and provider-specific paths in README, SECURITY and integration docs.
