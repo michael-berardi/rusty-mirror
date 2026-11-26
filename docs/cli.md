@@ -10,6 +10,7 @@ so its stdout may contain more than the final JSON document.
 | `1` | Failed: transport error, refused request, a script that threw, a blank capture |
 | `2` | Usage error |
 | `3` | `audit` found mirror code or mirror permissions |
+| `10` | `update --check` found a newer stable release |
 
 `run` preserves a failed child's numeric exit code (1–255); a signal or spawn
 failure becomes 1. A cleanup failure also makes the command fail. Thus a
@@ -40,6 +41,16 @@ overrides the socket path, but still requires `--app` or unambiguous app discove
 | `close` | Destroy the mirror and wait until it is really gone |
 | `run [--seconds N] [--size WxH] -- CMD…` | Open, run CMD with `RUSTY_MIRROR_APP` and `RUSTY_MIRROR_SOCKET` set, then attempt to close |
 | `audit PATH… [--capabilities DIR]` | Scan builds and capability files for anything mirror-shaped |
+| `update [--check\|--skip\|--auto on\|off\|status\|--notify on\|off\|status\|--rollback]` | Install the newest CLI release, or check, skip or configure updates |
+
+### `update`
+
+`update` installs the newest release with `cargo install --git … --tag vX
+--locked`, into the same install root. `--check` reports only (exit 0, 10 or
+1), `--skip` hides the current release's notice, `--auto on|off|status` and
+`--notify on|off|status` set the two switches, and `--rollback` reinstalls the
+previous version. On a terminal, ordinary commands may add a two-line notice
+on stderr; stdout stays one JSON document. See [updates](updates.md).
 
 ### `eval`
 

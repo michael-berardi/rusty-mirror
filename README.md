@@ -17,7 +17,7 @@ still have the app's full permissions.
 Install the CLI with Cargo:
 
 ```sh
-cargo install --git https://github.com/michael-berardi/rusty-mirror --tag v0.2.0 --locked rusty-mirror-cli
+cargo install --git https://github.com/michael-berardi/rusty-mirror --tag v0.3.0 --locked rusty-mirror-cli
 rusty-mirror --help
 ```
 
@@ -33,7 +33,7 @@ The CLI needs a mirror-enabled build of your app. Add the optional plugin:
 mirror-debug = ["dep:rusty-mirror"]
 
 [dependencies]
-rusty-mirror = { git = "https://github.com/michael-berardi/rusty-mirror", tag = "v0.2.0", optional = true }
+rusty-mirror = { git = "https://github.com/michael-berardi/rusty-mirror", tag = "v0.3.0", optional = true }
 ```
 
 Follow [the integration guide](docs/integrate.md) to install the asset
@@ -107,6 +107,19 @@ See the [security model](docs/security.md) and [reporting policy](SECURITY.md).
 | macOS 14+ | Native mirror and `WKWebView.takeSnapshot` capture; no Screen Recording permission needed |
 | Linux | Core and CLI use Unix APIs; plugin and capture support are not validated here |
 | Windows | Unsupported: no socket transport |
+
+## Updates
+
+On a terminal, the CLI tells you once a day when a newer release exists.
+`rusty-mirror update` installs it with Cargo, and automatic installs stay off
+until you run `rusty-mirror update --auto on`. See [updates](docs/updates.md).
+
+## Privacy
+
+- No telemetry, analytics or identifiers. Mirrors and captures stay on your machine.
+- The only request made on its own is the daily update check: one anonymous GET of the public release record.
+- It is off in CI, agent shells and non-terminal use, and with `RUSTY_MIRROR_NO_UPDATE_CHECK=1`.
+- Details: [PRIVACY.md](PRIVACY.md).
 
 ## Contributing
 

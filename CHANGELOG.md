@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.0 — 2026-11-26
+
+- CLI: `rusty-mirror update` installs the newest release with
+  `cargo install --git … --tag vX --locked` into the same install root.
+  `update --rollback` reinstalls the previous version.
+- CLI: a daily anonymous release check, with a two-line notice on stderr on a
+  terminal only. It is silent in CI, agent shells, pipes and JSON output, and
+  off with `RUSTY_MIRROR_NO_UPDATE_CHECK=1` or `update --notify off`.
+- CLI: `update --check` (exit 10 when an update is available), `--skip`,
+  `--auto on|off|status` (off by default) and `--notify on|off|status`.
+- Docs: `docs/updates.md` and `PRIVACY.md`.
+
 ## 0.2.0 — 2026-10-31
 
 - Neutralized personal/project names and provider-specific paths in README, SECURITY and integration docs.

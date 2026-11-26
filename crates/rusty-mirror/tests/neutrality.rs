@@ -194,6 +194,8 @@ fn shipped_files_are_provider_and_person_neutral() {
         root.join("scripts"),
         root.join("README.md"),
         root.join("SECURITY.md"),
+        root.join("PRIVACY.md"),
+        root.join("CHANGELOG.md"),
     ];
 
     let terms_path = std::env::var_os("OSS_PRIVATE_TERMS")
