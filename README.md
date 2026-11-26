@@ -128,8 +128,9 @@ See the [security model](docs/security.md) and [reporting policy](SECURITY.md).
 ## Updates
 
 On a terminal, the CLI tells you once a day when a newer release exists.
-`rusty-mirror update` installs it with Cargo, and automatic installs stay off
-until you run `rusty-mirror update --auto on`. See [updates](docs/updates.md).
+`rusty-mirror update` upgrades either install kind: it verifies and runs the
+release installer, or runs Cargo for a Cargo-installed CLI. Automatic installs
+stay off until `rusty-mirror update --auto on`. See [updates](docs/updates.md).
 
 ## Privacy
 

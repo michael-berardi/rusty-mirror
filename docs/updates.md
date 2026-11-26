@@ -61,25 +61,43 @@ comes back.
 
 ## How updates are installed
 
-You installed the CLI with `cargo install --git … --tag vX --locked`, so Cargo
-owns the binary. `update` runs the same command for the new tag, into the same
-install root:
+The updater detects how this binary was installed.
+
+**One-line / installer installs.** `scripts/install.sh` puts the binary in
+`~/.rusty-mirror/releases/<version>/`, points `~/.rusty-mirror/current` at that
+folder and writes a marked shim in `~/.local/bin`. `update` downloads
+`install.sh`, `SHA256SUMS` and this platform's archive for `v<version>` from
+
+```text
+https://github.com/michael-berardi/rusty-mirror/releases/download/v<version>/
+```
+
+into a private 0700 build folder, verifies both `install.sh` and the archive
+against `SHA256SUMS` before running anything, then runs `sh install.sh` with
+`RUSTY_MIRROR_RELEASE_BASE` set to that folder, plus `RUSTY_MIRROR_VERSION`,
+`RUSTY_MIRROR_HOME` and `RUSTY_MIRROR_BIN_DIR`, and with stdin closed. The
+installer performs its own checksum check and re-points `current`; a failed
+download, checksum or install leaves the running version in place. The build
+folder is removed on success, failure and interruption. For tests only,
+`RUSTY_MIRROR_UPDATE_RELEASE_BASE` replaces the download URL with a local
+release directory; release assets themselves are never unverified.
+
+**Cargo installs.** If Cargo owns the binary (`.crates2.json` in the install
+root), `update` runs the same command that installed it:
 
 ```sh
 cargo install --git https://github.com/michael-berardi/rusty-mirror --tag v0.4.0 --locked --force rusty-mirror-cli
 ```
 
-Cargo fetches the tag over HTTPS. It builds exactly the dependencies in the
-tag's `Cargo.lock`, checking each crate against the checksum recorded there.
-It replaces the binary only after a successful build, so a failed fetch,
-checksum or build leaves your current version in place. The build runs in a
-private temporary folder that is deleted when it finishes, on success or failure.
-If a build is killed, the next update removes its folder. Cargo keeps no copy
-of the old binary, so `update --rollback` rebuilds the previous tag the same
-way.
+Cargo fetches the tag over HTTPS, checks every crate against the checksums in
+the tag's `Cargo.lock`, and replaces the binary only after a successful build.
+A local build with neither marker is left alone, and the reported `command`
+tells you how to install one.
 
-If this binary was not installed with `cargo install` (a local build, for
-example), `update` leaves it alone and prints the command to run instead.
+`update --rollback` restores the previous version. For an installer install it
+only re-points `current` at the previous release folder, which must still
+exist; for a Cargo install it rebuilds the previous tag. No network or build is
+needed for the installer case.
 
 ## Local files
 
@@ -95,12 +113,14 @@ For testing, `RUSTY_MIRROR_UPDATE_CACHE` moves the folder, and
 
 `rusty-mirror update --auto off` deletes both files and the folder. The one
 exception is `--notify off`: a small file stays to remember that choice. To
-uninstall completely:
+stop the CLI and clear its state:
 
 ```sh
 rusty-mirror update --notify on   # only if you turned notices off
 rusty-mirror update --auto off
-cargo uninstall rusty-mirror-cli
 ```
 
-Cargo manages its own download cache under `~/.cargo`.
+Then remove the binary with `cargo uninstall rusty-mirror-cli` for a Cargo
+install, or delete the marked shim and `~/.rusty-mirror` for an installer
+install. Cargo and Scripts keep their own download caches; see
+[PRIVACY.md](PRIVACY.md) for what is on disk.

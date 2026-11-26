@@ -98,6 +98,10 @@ fn scan_dir(dir: &Path, hits: &mut Vec<String>) {
         let check_packages = CODE_EXTS.contains(&ext);
         for (i, line) in text.lines().enumerate() {
             let lower = line.to_ascii_lowercase();
+            if ext == "md" && lower.contains("img.shields.io") {
+                // GitHub renders these static documentation images; the product never requests them.
+                continue;
+            }
             let found = ENDPOINTS
                 .iter()
                 .filter(|p| lower.contains(**p))
