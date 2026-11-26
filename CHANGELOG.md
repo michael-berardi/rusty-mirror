@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0 — 2026-11-26
+
+- Added a one-line installer with SHA-256 verification, a per-tool install
+  folder and a `~/.local/bin` shim. It refuses to replace a `rusty-mirror` it
+  did not install; version and release base can be overridden by environment.
+- Added a release builder for a Developer ID signed, notarized macOS universal
+  binary and a Linux x86_64 binary, plus SHA256SUMS.
+- Added an installer integration test that runs the installer over a local
+  release directory with a temporary HOME.
+
 ## 0.2.0 — 2026-10-31
 
 - Neutralized personal/project names and provider-specific paths in README, SECURITY and integration docs.

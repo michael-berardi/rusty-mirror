@@ -13,7 +13,7 @@ custom-protocol = ["tauri/custom-protocol"]
 mirror-debug = ["dep:rusty-mirror"]
 
 [dependencies]
-rusty-mirror = { git = "https://github.com/michael-berardi/rusty-mirror", tag = "v0.2.0", optional = true }
+rusty-mirror = { git = "https://github.com/michael-berardi/rusty-mirror", tag = "v0.3.0", optional = true }
 ```
 
 `mirror-debug` must never be a default feature. Hot refresh serves embedded
