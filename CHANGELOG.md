@@ -11,6 +11,13 @@
   binary and a Linux x86_64 binary, plus SHA256SUMS.
 - Added an installer integration test that runs the installer over a local
   release directory with a temporary HOME.
+- Hardened local privacy: captures and Tally data files are created 0600, with
+  missing parent directories created 0700; the unattended script uses
+  `umask 077`.
+- Added privacy documentation and regression tests that reject telemetry
+  packages, third-party endpoints and a non-local default CSP.
+- Added anonymous daily update notices and a `rusty-mirror update` command.
+  The check can be disabled with `RUSTY_MIRROR_NO_UPDATE_CHECK=1`.
 
 ## 0.2.0 — 2026-10-31
 

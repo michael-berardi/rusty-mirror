@@ -2,7 +2,12 @@
 //! Everything Rusty Mirror needs is the three `mirror-debug` blocks below.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::{path::PathBuf, sync::Mutex};
+use std::{
+    io::Write,
+    os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
+    path::{Path, PathBuf},
+    sync::Mutex,
+};
 use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 struct Tally(Mutex<i64>);
@@ -12,8 +17,32 @@ fn data_file(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         Some(dir) => PathBuf::from(dir),
         None => app.path().app_data_dir().map_err(|e| e.to_string())?,
     };
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    if std::fs::symlink_metadata(&dir)
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false)
+    {
+        return Err(format!("{} is a symlink", dir.display()));
+    }
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&dir)
+        .map_err(|e| e.to_string())?;
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+        .map_err(|e| e.to_string())?;
     Ok(dir.join("tally.txt"))
+}
+
+fn write_tally(file: &Path, value: i64) -> Result<(), String> {
+    let mut out = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(file)
+        .map_err(|e| format!("{}: {e}", file.display()))?;
+    out.write_all(value.to_string().as_bytes())
+        .map_err(|e| e.to_string())
 }
 
 /// Read-only: safe to allow in the mirror.
@@ -26,7 +55,7 @@ fn get_tally(tally: State<Tally>) -> i64 {
 #[tauri::command]
 fn save_tally(app: tauri::AppHandle, tally: State<Tally>, value: i64) -> Result<(), String> {
     *tally.0.lock().unwrap() = value;
-    std::fs::write(data_file(&app)?, value.to_string()).map_err(|e| e.to_string())
+    write_tally(&data_file(&app)?, value)
 }
 
 fn main() {
