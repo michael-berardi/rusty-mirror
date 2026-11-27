@@ -673,6 +673,40 @@ fn sha256_hex(bytes: &[u8]) -> String {
     hex
 }
 
+/// Keeps only the release folders named in `keep` (the new version and the one
+/// it replaced, for `--rollback`) plus whatever `current` points at. Older
+/// folders are removed so repeated updates leave no stale binaries behind.
+/// Only `<home>/releases/<x.y.z>` folders are touched; anything else is left.
+fn prune_releases(home: &Path, keep: &[&str]) {
+    let releases = home.join("releases");
+    let active = fs::canonicalize(home.join("current")).ok();
+    let Ok(entries) = fs::read_dir(&releases) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        let Some((a, b, c)) = parse_version(name) else {
+            continue;
+        };
+        if format!("{a}.{b}.{c}") != name {
+            continue;
+        }
+        let kept = keep.iter().any(|k| {
+            parse_version(k).map(|(x, y, z)| format!("{x}.{y}.{z}")) == Some(name.to_owned())
+        });
+        let path = entry.path();
+        let is_active = active
+            .as_deref()
+            .is_some_and(|act| fs::canonicalize(&path).ok().as_deref() == Some(act));
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        if kept || is_active || !is_dir {
+            continue;
+        }
+        let _ = fs::remove_dir_all(&path);
+    }
+}
+
 /// The command a person can run instead, for the install kind in use.
 fn install_hint(kind: Option<&InstallKind>, version: &str) -> String {
     match kind {
@@ -845,19 +879,25 @@ impl Installer {
             let status = command
                 .status()
                 .map_err(|e| format!("cannot run install.sh: {e}"))?;
-            return status.success().then_some(()).ok_or(format!(
-                "install.sh failed ({status}); {current} is unchanged"
-            ));
+            if !status.success() {
+                return Err(format!(
+                    "install.sh failed ({status}); {current} is unchanged"
+                ));
+            }
+            prune_releases(home, &[tag, current]);
+            return Ok(());
         }
         let output = command
             .output()
             .map_err(|e| format!("cannot run install.sh: {e}"))?;
-        output.status.success().then_some(()).ok_or_else(|| {
-            format!(
+        if !output.status.success() {
+            return Err(format!(
                 "install.sh failed: {}; {current} is unchanged",
                 tail(&output.stderr)
-            )
-        })
+            ));
+        }
+        prune_releases(home, &[tag, current]);
+        Ok(())
     }
 
     /// A script-install rollback only re-points `current`; no download or build.
@@ -1880,5 +1920,31 @@ mod tests {
         let state = store.load();
         assert_eq!(state.previous, None);
         assert_eq!(state.skipped.as_deref(), Some("0.4.0"));
+    }
+
+    #[test]
+    fn installer_update_keeps_only_the_new_and_previous_release_folders() {
+        let dir = TestDir::new("installer-prune");
+        let bin = dir.0.join("bin");
+        let (exe, home) = installer_layout(&dir, "0.3.0", &bin);
+        for old in ["0.1.0", "0.2.0"] {
+            let folder = home.join("releases").join(old);
+            fs::create_dir_all(&folder).unwrap();
+            fs::write(folder.join(TOOL), "old").unwrap();
+        }
+        fs::create_dir_all(home.join("releases").join("not-a-version")).unwrap();
+        let installer = installer_at(&dir, installer_home_from(&exe, Some(&bin)).unwrap());
+        // A stand-in installer that unpacks 0.4.0 and re-points `current`, like scripts/install.sh.
+        let script = "#!/bin/sh\nset -e\nmkdir -p \"$RUSTY_MIRROR_HOME/releases/0.4.0\"\n: > \"$RUSTY_MIRROR_HOME/releases/0.4.0/rusty-mirror\"\nln -sfn \"$RUSTY_MIRROR_HOME/releases/0.4.0\" \"$RUSTY_MIRROR_HOME/current\"\n";
+        let (_, base) = installer_release(&dir, script, false);
+        installer
+            .installer_install("0.4.0", "0.3.0", &home, &bin, false, Some(&base))
+            .unwrap();
+        let mut left: Vec<String> = fs::read_dir(home.join("releases"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        assert_eq!(left, ["0.3.0", "0.4.0", "not-a-version"]);
     }
 }

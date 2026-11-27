@@ -20,7 +20,8 @@
   command for both install kinds. Script installs download `install.sh`,
   `SHA256SUMS` and the platform archive into a private build folder, verify
   both files before running, and rollback by re-pointing `current`; Cargo
-  installs rebuild the previous tag. The daily check can be disabled with
+  installs rebuild the previous tag. A script-install update keeps only the new
+  and previous release folders. The daily check can be disabled with
   `RUSTY_MIRROR_NO_UPDATE_CHECK=1`. See `docs/updates.md` and `PRIVACY.md`.
 
 ## 0.2.0 — 2026-10-31

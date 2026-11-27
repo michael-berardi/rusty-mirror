@@ -39,7 +39,9 @@ Neither kind sends local files, versions or identifiers in a request.
   0600 file in a 0700 directory. The unattended script uses `umask 077`.
 - A script install keeps its binary in `~/.rusty-mirror/releases/<version>`,
   a `current` symlink, the installer marker and a marked shim in
-  `~/.local/bin`; the archive is unpacked into a temporary 0700 folder.
+  `~/.local/bin`; the archive is unpacked into a temporary 0700 folder. An
+  update keeps only the new release folder and the one it replaced (for
+  `update --rollback`) and removes older ones.
 - Opening a mirror copies the primary's `localStorage`, `sessionStorage` and any
   state your snapshot hook returns into memory only. Rusty Mirror does not write
   that copy to disk; closing or expiry destroys it. A capture PNG can show
