@@ -45,11 +45,12 @@ overrides the socket path, but still requires `--app` or unambiguous app discove
 
 ### `update`
 
-`update` installs the newest release with `cargo install --git … --tag vX
---locked`, into the same install root. `--check` reports only (exit 0, 10 or
-1), `--skip` hides the current release's notice, `--auto on|off|status` and
-`--notify on|off|status` set the two switches, and `--rollback` reinstalls the
-previous version. On a terminal, ordinary commands may add a two-line notice
+`update` installs the newest release the way the CLI was installed: a
+download checked against the release's `SHA256SUMS` and swapped in atomically
+for an installer copy, `cargo install --git … --tag vX --locked` for a Cargo
+copy. `--check` reports only (exit 0, 10 or 1), `--skip` hides the current
+release's notice, `--auto on|off|status` and `--notify on|off|status` set the
+two switches, and `--rollback` goes back to the previous version. On a terminal, ordinary commands may add a two-line notice
 on stderr; stdout stays one JSON document. See [updates](updates.md).
 
 ### `eval`

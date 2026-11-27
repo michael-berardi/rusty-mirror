@@ -18,20 +18,20 @@ Install the CLI in one line on macOS 14+ or Linux x86_64:
 curl -fsSL https://github.com/michael-berardi/rusty-mirror/releases/latest/download/install.sh | sh
 ```
 
-The installer fetches `SHA256SUMS` and checks the archive's SHA-256 before it
-unpacks anything. It installs the CLI into `~/.rusty-mirror/releases/<version>`
-and writes a shim to `~/.local/bin/rusty-mirror`; add that directory to your
-PATH if needed. It will not replace a `rusty-mirror` it did not install. To
-change the destination or select a build, set `RUSTY_MIRROR_HOME`,
-`RUSTY_MIRROR_BIN_DIR`, `RUSTY_MIRROR_VERSION` (default: latest) or
-`RUSTY_MIRROR_RELEASE_BASE` (a local release directory, an `http(s)://` or
-`file://` URL, used by tests). The macOS build is a universal binary, Developer ID signed and
-notarized; the Linux x86_64 build is a plain binary.
+The installer checks the archive against the release's `SHA256SUMS` before it
+unpacks anything, installs into `~/.local/share/rusty-mirror/releases/<version>`
+and writes a shim to `~/.local/bin/rusty-mirror` (add it to your PATH if
+needed). It never replaces a `rusty-mirror` it did not install. To change
+where it goes or pick a version, set `RUSTY_MIRROR_INSTALL_DIR`,
+`RUSTY_MIRROR_BIN_DIR` or `RUSTY_MIRROR_VERSION`; `RUSTY_MIRROR_RELEASE_BASE`
+(a local release folder or URL) is for tests. The macOS build is a universal
+binary, Developer ID signed and notarized; the Linux x86_64 build is a plain
+binary.
 
 Alternatively, install the CLI with Cargo:
 
 ```sh
-cargo install --git https://github.com/michael-berardi/rusty-mirror --tag v0.3.0 --locked rusty-mirror-cli
+cargo install --git https://github.com/michael-berardi/rusty-mirror --tag v0.4.0 --locked rusty-mirror-cli
 rusty-mirror --help
 ```
 
@@ -48,7 +48,7 @@ plugin to your Tauri crate:
 mirror-debug = ["dep:rusty-mirror"]
 
 [dependencies]
-rusty-mirror = { git = "https://github.com/michael-berardi/rusty-mirror", tag = "v0.3.0", optional = true }
+rusty-mirror = { git = "https://github.com/michael-berardi/rusty-mirror", tag = "v0.4.0", optional = true }
 ```
 
 Follow [the integration guide](docs/integrate.md) to install the asset
@@ -126,8 +126,10 @@ See the [security model](docs/security.md) and [reporting policy](SECURITY.md).
 ## Updates
 
 On a terminal, the CLI tells you once a day when a newer release exists.
-`rusty-mirror update` installs it with Cargo, and automatic installs stay off
-until you run `rusty-mirror update --auto on`. See [updates](docs/updates.md).
+`rusty-mirror update` installs it the way you installed the CLI: a verified
+download for the installer, `cargo install --tag` for Cargo. Automatic installs
+stay off until you run `rusty-mirror update --auto on`. See
+[updates](docs/updates.md).
 
 ## Privacy
 

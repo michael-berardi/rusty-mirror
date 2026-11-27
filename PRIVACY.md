@@ -18,10 +18,12 @@ The CLI makes one network request on its own: the daily update check.
 - Never in CI, in agent shells or without a terminal. To turn it off, set
   `RUSTY_MIRROR_NO_UPDATE_CHECK=1` or run `rusty-mirror update --notify off`.
 
-`rusty-mirror update`, and automatic installs if you turn them on, run
-`cargo install`. Cargo downloads the release's source from GitHub and its
-dependencies from crates.io. Installing from GitHub and adding the git
-dependency download source code with Cargo only when you ask for it.
+`rusty-mirror update`, and automatic installs if you turn them on, download
+the new release the way you installed it: for an installer copy, the release
+archive and `SHA256SUMS` from the GitHub release, with the same fixed
+User-Agent; for a Cargo copy, `cargo install` fetches the tag's source from
+GitHub and its dependencies from crates.io. The installer and the git
+dependency download only when you run them.
 
 The mirror's default CSP limits webview traffic to the app's own origin and
 Tauri IPC. It is not an offline sandbox, and a custom `.csp(...)` can widen
@@ -38,6 +40,9 @@ your app sends; Rusty Mirror does not proxy, log or report it.
   directories are created 0700. Nothing deletes captures automatically.
 - The Tally example's counter in its app data directory or `$TALLY_DATA`: a
   0600 file in a 0700 directory.
+- The installer copy in `~/.local/share/rusty-mirror/` (0700, or
+  `$RUSTY_MIRROR_INSTALL_DIR`): the release in use and at most one earlier
+  release for `update --rollback`, plus the shim `~/.local/bin/rusty-mirror`.
 - The update check's result in `update.json` (0600) in the platform cache
   folder: `~/Library/Caches/rusty-mirror/` on macOS, `~/.cache/rusty-mirror/`
   elsewhere. Automatic installs also write `update.log` there, capped at
@@ -53,4 +58,5 @@ whatever the app displays.
 
 Close the mirror, then `rm -rf ~/.rusty-mirror`, remove your capture files
 and, if you used Tally, its data file. Run `rusty-mirror update --auto off` to
-delete the update cache.
+delete the update cache. To remove an installer copy, delete
+`~/.local/share/rusty-mirror` and `~/.local/bin/rusty-mirror`.

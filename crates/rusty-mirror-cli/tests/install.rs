@@ -1,7 +1,8 @@
-//! End-to-end check for scripts/install.sh: a local release directory stands in for
-//! GitHub, a temporary HOME catches writes outside the tool folder, and the real CLI
-//! binary built by Cargo is the archive payload. If dist/release has been built with
-//! scripts/build-release.sh, the very same check runs against those signed assets too.
+//! End-to-end check for scripts/install.sh and `rusty-mirror update` on the copy it
+//! installs: a local release directory stands in for GitHub, a temporary HOME catches
+//! writes outside the tool folder, and the real CLI binary built by Cargo is the archive
+//! payload. If dist/release has been built with scripts/build-release.sh, the very same
+//! check runs against those signed assets too.
 use std::{
     env, fs,
     io::{BufRead, BufReader},
@@ -129,7 +130,7 @@ fn install(installer: &Path, base: &str, home: &Path, bin: &Path) -> std::proces
     Command::new("sh")
         .arg(installer)
         .env("HOME", home)
-        .env("RUSTY_MIRROR_HOME", home.join("tool"))
+        .env("RUSTY_MIRROR_INSTALL_DIR", home.join("tool"))
         .env("RUSTY_MIRROR_BIN_DIR", bin)
         .env("RUSTY_MIRROR_RELEASE_BASE", base)
         .env_remove("RUSTY_MIRROR_VERSION")
@@ -416,7 +417,7 @@ fn installer_rejects_non_x86_64_linux() {
             format!("{}:{}", stub.display(), env::var("PATH").unwrap()),
         )
         .env("HOME", &home)
-        .env("RUSTY_MIRROR_HOME", home.join("tool"))
+        .env("RUSTY_MIRROR_INSTALL_DIR", home.join("tool"))
         .env("RUSTY_MIRROR_BIN_DIR", &bin)
         .env("RUSTY_MIRROR_RELEASE_BASE", &release)
         .env_remove("RUSTY_MIRROR_VERSION")
@@ -454,4 +455,154 @@ fn build_release_rejects_unsafe_out() {
             String::from_utf8_lossy(&out.stderr)
         );
     }
+}
+
+/// A release whose CLI is a stand-in script that reports `version`.
+fn make_stand_in_release(release: &Path, asset: &str, version: &str) {
+    let stage = release.with_file_name(format!("stage-{version}"));
+    fs::create_dir_all(stage.join("rusty-mirror")).unwrap();
+    fs::create_dir_all(release).unwrap();
+    let cli = stage.join("rusty-mirror/rusty-mirror");
+    fs::write(&cli, format!("#!/bin/sh\necho 'rusty-mirror {version}'\n")).unwrap();
+    fs::set_permissions(&cli, fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(stage.join("rusty-mirror/VERSION"), format!("{version}\n")).unwrap();
+    run(Command::new("tar")
+        .arg("-czf")
+        .arg(release.join(asset))
+        .arg("-C")
+        .arg(&stage)
+        .arg("rusty-mirror"));
+    let sums = format!("{}  {asset}\n", checksum(&release.join(asset)));
+    fs::write(release.join("SHA256SUMS"), sums).unwrap();
+}
+
+fn releases(tool: &Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(tool.join("releases"))
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn installed_cli_updates_itself_from_a_verified_release() {
+    let Some(asset) = asset_name() else {
+        eprintln!("skipped: no installer asset for this platform");
+        return;
+    };
+    let temp = TempTree::new();
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let release = temp.child("release");
+    make_release(&repo, &release, asset);
+    let (home, bin) = (temp.child("home"), temp.child("bin"));
+    fs::create_dir_all(&home).unwrap();
+    let out = install(
+        &release.join("install.sh"),
+        release.to_str().unwrap(),
+        &home,
+        &bin,
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_installed(&bin);
+
+    // The release API and the next release, both local.
+    let next = temp.child("next");
+    make_stand_in_release(&next, asset, "99.0.0");
+    let api = temp.child("api");
+    fs::create_dir_all(&api).unwrap();
+    fs::write(
+        api.join("latest"),
+        r#"{"tag_name":"v99.0.0","draft":false,"prerelease":false,"body":"- Fixes"}"#,
+    )
+    .unwrap();
+    let server = Server::new(&api);
+    let update = |args: &[&str], base: &Path| {
+        Command::new(bin.join("rusty-mirror"))
+            .args(args)
+            .env("HOME", &home)
+            .env("RUSTY_MIRROR_UPDATE_CACHE", temp.child("cache"))
+            .env("RUSTY_MIRROR_UPDATE_API", format!("{}/latest", server.base))
+            .env("RUSTY_MIRROR_RELEASE_BASE", base)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    };
+    let check = update(&["update", "--check"], &next);
+    assert_eq!(
+        check.status.code(),
+        Some(10),
+        "{}",
+        String::from_utf8_lossy(&check.stdout)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&check.stdout).unwrap();
+    assert_eq!(report["command"], "rusty-mirror update");
+
+    // A tampered archive is refused and the installed version keeps working.
+    let tampered = temp.child("tampered");
+    make_stand_in_release(&tampered, asset, "99.0.0");
+    fs::write(
+        tampered.join("SHA256SUMS"),
+        format!("{}  {asset}\n", "0".repeat(64)),
+    )
+    .unwrap();
+    let refused = update(&["update"], &tampered);
+    assert_eq!(refused.status.code(), Some(1));
+    let report: serde_json::Value = serde_json::from_slice(&refused.stdout).unwrap();
+    assert!(
+        report["error"]
+            .as_str()
+            .unwrap()
+            .contains("checksum mismatch"),
+        "{report}"
+    );
+    assert_installed(&bin);
+
+    let done = update(&["update"], &next);
+    assert!(
+        done.status.success(),
+        "{}",
+        String::from_utf8_lossy(&done.stdout)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&done.stdout).unwrap();
+    assert_eq!(report["installed"], "99.0.0");
+    let ran = Command::new(bin.join("rusty-mirror"))
+        .arg("--version")
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&ran.stdout).trim(),
+        "rusty-mirror 99.0.0"
+    );
+    let tool = home.join("tool");
+    assert_eq!(releases(&tool), [VERSION.to_string(), "99.0.0".into()]);
+    let leftovers: Vec<_> = fs::read_dir(&tool)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| !["releases", "current", ".installed-by-rusty-mirror"].contains(&n.as_str()))
+        .collect();
+    assert!(leftovers.is_empty(), "download folder left: {leftovers:?}");
+
+    // Re-running the installer also keeps exactly one earlier release.
+    let later = temp.child("later");
+    make_stand_in_release(&later, asset, "99.1.0");
+    fs::copy(release.join("install.sh"), later.join("install.sh")).unwrap();
+    let out = install(
+        &later.join("install.sh"),
+        later.to_str().unwrap(),
+        &home,
+        &bin,
+    );
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(releases(&tool), ["99.0.0", "99.1.0"]);
 }

@@ -100,7 +100,7 @@ enum Command {
     },
     /// Check the local setup and list apps with a live control socket.
     Doctor,
-    /// Install the newest release of this CLI with Cargo (see docs/updates.md).
+    /// Install the newest release of this CLI the way it was installed (see docs/updates.md).
     Update {
         /// Report only. Exit 0 up to date, 10 update available, 1 check failed.
         #[arg(long, group = "action")]
@@ -192,14 +192,14 @@ fn call(t: &Target, request: Request) -> Result<Value, String> {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    let code = match run(&cli) {
-        Ok(code) => code,
-        Err(error) => fail(error),
-    };
+    let result = run(&cli);
+    let succeeded = matches!(&result, Ok(code) if *code == ExitCode::SUCCESS);
+    let code = result.unwrap_or_else(fail);
     if !matches!(
         cli.command,
         Command::Update { .. } | Command::UpdateHelper { .. }
     ) {
+        update::settle(succeeded);
         update::after_command();
     }
     code

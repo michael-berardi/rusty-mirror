@@ -1,36 +1,37 @@
 # Changelog
 
-## 0.3.0 — 2026-11-26
+## 0.4.0 — 2026-11-26
 
-- CLI: `rusty-mirror update` installs the newest release with
-  `cargo install --git … --tag vX --locked` into the same install root.
-  `update --rollback` reinstalls the previous version.
+- Install: a one-line installer for macOS 14+ (Developer ID signed, notarized
+  universal binary) and Linux x86_64. It checks the archive against the
+  release's `SHA256SUMS` before unpacking, installs into
+  `~/.local/share/rusty-mirror/releases/<version>` with a `~/.local/bin` shim,
+  never replaces a `rusty-mirror` it did not install, and keeps at most one
+  earlier release. `RUSTY_MIRROR_INSTALL_DIR`, `RUSTY_MIRROR_BIN_DIR`,
+  `RUSTY_MIRROR_VERSION` and `RUSTY_MIRROR_RELEASE_BASE` override it.
+- Install: `scripts/build-release.sh` builds the release assets
+  (`rusty-mirror-darwin-universal.tar.gz`, `rusty-mirror-linux-x86_64.tar.gz`,
+  `install.sh`, `SHA256SUMS`).
+- CLI: `rusty-mirror update` installs the newest release the way the CLI was
+  installed. An installer copy downloads the archive, verifies its SHA-256,
+  checks the version and swaps it in with one atomic link rename. A Cargo
+  copy runs `cargo install --git … --tag vX --locked` into the same root.
+  `update --rollback` goes back to the previous version; the replaced release
+  folder is removed after the new one has run once, or after a week.
 - CLI: a daily anonymous release check, with a two-line notice on stderr on a
   terminal only. It is silent in CI, agent shells, pipes and JSON output, and
   off with `RUSTY_MIRROR_NO_UPDATE_CHECK=1` or `update --notify off`.
 - CLI: `update --check` (exit 10 when an update is available), `--skip`,
   `--auto on|off|status` (off by default) and `--notify on|off|status`.
-- Docs: `docs/updates.md` and `PRIVACY.md`.
-- Added a one-line installer with SHA-256 verification, a per-tool install
-  folder and a `~/.local/bin` shim. It refuses to replace a `rusty-mirror` it
-  did not install; version and release base (local directory or `http(s)`/
-  `file://` URL) can be overridden by environment. Linux installs require
-  x86_64.
-- Added a release builder for a Developer ID signed, notarized macOS universal
-  binary and a Linux x86_64 binary, plus SHA256SUMS.
-- Added an installer integration test that runs the installer over a local
-  release directory with a temporary HOME.
-
-## 0.2.1 — 2026-11-26
-
-Privacy hardening: captures create any missing parent directories 0700, in
-addition to their 0600 file mode; the Tally example writes its data
-file 0600 in a 0700 directory; the unattended script uses `umask 077`.
-
-Added a README Privacy section, removed third-party release badges from the
-README, and added a test that fails if telemetry packages, third-party
-endpoints or a non-local default CSP are reintroduced. No telemetry or update
-checks were present; nothing was removed from user configuration.
+- Privacy: captures create any missing parent directories 0700, in addition
+  to their 0600 file mode; the Tally example writes its data file 0600 in a
+  0700 directory; `scripts/e2e.sh` uses `umask 077`.
+- Privacy: no third-party badges in the README, and a test that fails if
+  telemetry packages, third-party endpoints or a non-local default CSP are
+  reintroduced.
+- Docs: `docs/updates.md`, `PRIVACY.md`, and a short README Privacy section.
+- Tests: the installer and `update` run end to end over a local release
+  folder with a temporary HOME; checksum mismatches are refused.
 
 ## 0.2.0 — 2026-10-31
 

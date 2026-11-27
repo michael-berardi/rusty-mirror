@@ -137,3 +137,39 @@ fn default_csp_only_permits_the_app_origin_and_ipc() {
     );
     assert!(!csp.contains("https://"));
 }
+
+#[test]
+fn readme_privacy_is_short_and_privacy_md_has_the_details() {
+    let readme = fs::read_to_string(root().join("README.md")).unwrap();
+    let section = readme
+        .split("\n## Privacy\n")
+        .nth(1)
+        .expect("README has a Privacy section");
+    let section = section.split("\n## ").next().unwrap();
+    let lines = section.lines().filter(|l| !l.trim().is_empty()).count();
+    assert!(
+        lines <= 6,
+        "README Privacy has {lines} lines; details belong in PRIVACY.md"
+    );
+    assert!(section.contains("PRIVACY.md"));
+    assert!(section.contains("daily update check"));
+    let privacy = fs::read_to_string(root().join("PRIVACY.md")).unwrap();
+    for detail in [
+        "control.sock",
+        "hot-assets",
+        "missing parent\n  directories are created 0700",
+        "TALLY_DATA",
+        "localStorage",
+        "update.json",
+        "rusty-mirror-update-check",
+        "RUSTY_MIRROR_NO_UPDATE_CHECK=1",
+        "SHA256SUMS",
+        "default CSP",
+    ] {
+        assert!(privacy.contains(detail), "PRIVACY.md lacks {detail:?}");
+    }
+    for text in [&readme, &privacy] {
+        let lower = text.to_ascii_lowercase();
+        assert!(!lower.contains("no update check"), "stale update wording");
+    }
+}

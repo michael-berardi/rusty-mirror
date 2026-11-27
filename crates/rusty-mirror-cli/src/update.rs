@@ -1,17 +1,22 @@
 //! Update notices and opt-in self-update (update contract v1, docs/updates.md).
 //!
-//! The CLI is installed from source with `cargo install --git … --tag vX
-//! --locked`, so Cargo owns the binary and `update` runs that same command for
+//! `update` installs the same way the CLI was installed. A copy from
+//! scripts/install.sh is replaced by the release archive for this platform,
+//! checked against the release's SHA256SUMS before anything is unpacked, then
+//! swapped in with one atomic link rename; the release it replaced is kept for
+//! `update --rollback` until the new one has run once. A `cargo install --git …
+//! --tag vX --locked` copy is owned by Cargo, so `update` runs that command for
 //! the new tag. The only automatic network request is one anonymous GET of the
 //! public latest-release record, at most once a day, from a detached helper.
 //! State is one small 0600 file in the platform cache directory.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::{
     env, fs,
     io::{self, IsTerminal, Write},
-    os::unix::fs::{DirBuilderExt, OpenOptionsExt},
+    os::unix::fs::{symlink, DirBuilderExt, OpenOptionsExt},
     os::unix::process::CommandExt,
     path::{Path, PathBuf},
     process::{Command, ExitCode, Stdio},
@@ -26,6 +31,10 @@ const USER_AGENT: &str = "rusty-mirror-update-check";
 const DAY: u64 = 24 * 60 * 60;
 const LOG_LIMIT: usize = 256 * 1024;
 const BUILD_PREFIX: &str = "rusty-mirror-update-";
+/// Written by scripts/install.sh into the folder it owns.
+const INSTALLER_MARKER: &str = ".installed-by-rusty-mirror";
+/// The replaced release goes once the new one has run, or after this long.
+const ROLLBACK_KEEP: u64 = 7 * DAY;
 
 /// Everything the updater remembers. Missing fields take their defaults.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -487,9 +496,152 @@ fn cargo_root(exe: &Path) -> Option<PathBuf> {
         .then(|| root.to_path_buf())
 }
 
-/// The command a person can run instead, for any install kind.
-fn install_hint(version: &str) -> String {
-    format!("cargo install --git {REPOSITORY} --tag v{version} --locked --force {PACKAGE}")
+/// The scripts/install.sh folder that owns `exe`: `<dir>/releases/<x.y.z>/rusty-mirror`,
+/// with the installer's marker, and only while `<dir>/current` points at that release.
+fn script_dir(exe: &Path) -> Option<PathBuf> {
+    let exe = fs::canonicalize(exe).ok()?;
+    let release = exe.parent()?;
+    parse_version(release.file_name()?.to_str()?)?;
+    let releases = release
+        .parent()
+        .filter(|r| r.file_name() == Some("releases".as_ref()))?;
+    let dir = releases.parent()?;
+    let current = fs::canonicalize(dir.join("current")).ok()?;
+    (dir.join(INSTALLER_MARKER).is_file() && current == release).then(|| dir.to_path_buf())
+}
+
+fn github_slug() -> &'static str {
+    REPOSITORY.trim_start_matches("https://github.com/")
+}
+
+/// The archive scripts/build-release.sh publishes for this machine.
+fn platform_asset() -> Result<&'static str, String> {
+    match (env::consts::OS, env::consts::ARCH) {
+        ("macos", _) => Ok("rusty-mirror-darwin-universal.tar.gz"),
+        ("linux", "x86_64") => Ok("rusty-mirror-linux-x86_64.tar.gz"),
+        (os, arch) => Err(format!("no release download for {os} {arch}")),
+    }
+}
+
+/// The command a person can run instead, for the install kind in use.
+fn install_hint(kind: Option<&Kind>, version: &str) -> String {
+    match kind {
+        Some(Kind::Script { .. }) => format!(
+            "curl -fsSL https://github.com/{}/releases/latest/download/install.sh | RUSTY_MIRROR_VERSION={version} sh",
+            github_slug()
+        ),
+        _ => format!("cargo install --git {REPOSITORY} --tag v{version} --locked --force {PACKAGE}"),
+    }
+}
+
+/// A release file from a URL (curl, fixed User-Agent, no `~/.curlrc`) or, for
+/// tests, from a local directory.
+fn download(base: &str, name: &str, dest: &Path) -> Result<(), String> {
+    if !["https://", "http://", "file://"]
+        .iter()
+        .any(|scheme| base.starts_with(scheme))
+    {
+        return fs::copy(Path::new(base).join(name), dest)
+            .map(|_| ())
+            .map_err(|e| format!("cannot copy {name} from {base}: {e}"));
+    }
+    let mut curl = Command::new("curl");
+    curl.args([
+        "--disable",
+        "--silent",
+        "--show-error",
+        "--fail",
+        "--location",
+    ])
+    .args(["--max-redirs", "5", "--max-time", "300", "--retry", "2"])
+    .args(["--user-agent", USER_AGENT]);
+    if base.starts_with("https://") {
+        curl.args(["--proto", "=https", "--proto-redir", "=https"]);
+    }
+    let output = curl
+        .arg("--output")
+        .arg(dest)
+        .arg(format!("{base}/{name}"))
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("cannot run curl: {e}"))?;
+    output
+        .status
+        .success()
+        .then_some(())
+        .ok_or_else(|| format!("download of {name} failed: {}", tail(&output.stderr)))
+}
+
+/// The SHA-256 that a `SHA256SUMS` file lists for `name`.
+fn listed_sum(sums: &str, name: &str) -> Option<String> {
+    sums.lines().find_map(|line| {
+        let mut fields = line.split_whitespace();
+        let (hash, file) = (fields.next()?, fields.next()?);
+        let hex = hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit());
+        (hex && file.trim_start_matches('*') == name).then(|| hash.to_ascii_lowercase())
+    })
+}
+
+fn sha256_file(path: &Path) -> Result<String, String> {
+    let bytes = fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(Sha256::digest(&bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
+}
+
+/// Point `<dir>/current` at `release` with one rename, so a command starting
+/// at the same moment runs either the old release or the new one, never neither.
+fn swap_current(dir: &Path, release: &Path) -> Result<(), String> {
+    let fresh = dir.join(format!(".current.{}", std::process::id()));
+    let _ = fs::remove_file(&fresh);
+    symlink(release, &fresh)
+        .and_then(|()| fs::rename(&fresh, dir.join("current")))
+        .map_err(|e| {
+            let _ = fs::remove_file(&fresh);
+            format!("cannot switch {}: {e}", dir.join("current").display())
+        })
+}
+
+/// Remove every release folder except `keep` (and the current one).
+fn prune_releases(dir: &Path, keep: &[&Path]) {
+    let current = fs::canonicalize(dir.join("current")).ok();
+    let Ok(entries) = fs::read_dir(dir.join("releases")) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let real = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+        let kept = current.as_deref() == Some(&real)
+            || keep
+                .iter()
+                .any(|k| fs::canonicalize(k).ok().as_deref() == Some(&real));
+        if !kept {
+            let _ = fs::remove_dir_all(&path);
+        }
+    }
+}
+
+/// After an ordinary command of an installer copy: once the release in use has
+/// run successfully, or a week after the switch, the release it replaced goes.
+pub(crate) fn settle(succeeded: bool) {
+    if let Ok(exe) = env::current_exe() {
+        settle_at(&exe, succeeded, now());
+    }
+}
+
+fn settle_at(exe: &Path, succeeded: bool, now: u64) {
+    let Some(dir) = script_dir(exe) else {
+        return; // not an installer copy, or an older process after a switch
+    };
+    let switched = fs::symlink_metadata(dir.join("current"))
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map_or(0, |t| t.as_secs());
+    if succeeded || now.saturating_sub(switched) >= ROLLBACK_KEEP {
+        prune_releases(&dir, &[]);
+    }
 }
 
 /// A private build folder that is removed on success, failure and panic.
@@ -537,63 +689,209 @@ fn sweep_stale_builds(temp: &Path, now: u64) {
     }
 }
 
-/// Runs `cargo install` for a release tag into the root that owns this binary.
+/// How this binary was installed, which decides how `update` replaces it.
+#[derive(Clone, Debug, PartialEq)]
+enum Kind {
+    /// `cargo install --git … --tag vX`: Cargo owns `<root>/bin/rusty-mirror`.
+    Cargo { cargo: PathBuf, root: PathBuf },
+    /// scripts/install.sh: `<dir>/releases/<x.y.z>/` folders and a `<dir>/current`
+    /// link. `base` is `RUSTY_MIRROR_RELEASE_BASE` (a local folder or URL, for tests).
+    Script { dir: PathBuf, base: Option<String> },
+}
+
+/// Replaces this binary with a release, the way it was installed.
 struct Installer {
-    cargo: PathBuf,
-    root: PathBuf,
+    kind: Kind,
+    /// Where the private build or download folder goes.
     temp: PathBuf,
 }
 
 impl Installer {
     fn locate() -> Result<Installer, String> {
         let exe = env::current_exe().map_err(|e| format!("cannot find this binary: {e}"))?;
-        let root = cargo_root(&exe)
-            .ok_or_else(|| format!("{} was not installed with cargo install", exe.display()))?;
+        if let Some(dir) = script_dir(&exe) {
+            let base = env::var("RUSTY_MIRROR_RELEASE_BASE")
+                .ok()
+                .filter(|b| !b.is_empty());
+            return Ok(Installer {
+                temp: dir.clone(), // same filesystem as the releases, so the move is a rename
+                kind: Kind::Script { dir, base },
+            });
+        }
+        let root = cargo_root(&exe).ok_or_else(|| {
+            format!(
+                "{} was not installed with cargo install or the installer",
+                exe.display()
+            )
+        })?;
         let rustup = root.join("bin").join("cargo");
         Ok(Installer {
-            cargo: if rustup.is_file() {
-                rustup
-            } else {
-                "cargo".into()
+            kind: Kind::Cargo {
+                cargo: if rustup.is_file() {
+                    rustup
+                } else {
+                    "cargo".into()
+                },
+                root,
             },
-            root,
             temp: env::temp_dir(),
         })
+    }
+
+    fn install(&self, version: &str, current: &str, progress: bool) -> Result<(), String> {
+        let version = match parse_version(version) {
+            Some(v) if Some(v) != parse_version(current) => format!("{}.{}.{}", v.0, v.1, v.2),
+            _ => return Err(format!("refusing to install version {version:?}")),
+        };
+        match &self.kind {
+            Kind::Cargo { cargo, root } => self.cargo_install(cargo, root, &version, progress),
+            Kind::Script { dir, base } => {
+                self.script_install(dir, base.as_deref(), &version, progress)
+            }
+        }
     }
 
     /// Cargo fetches the tag over HTTPS, builds exactly the tag's Cargo.lock
     /// (`--locked`, each crate checked against its recorded checksum) and only
     /// replaces the binary after a successful build.
-    fn install(&self, version: &str, current: &str, progress: bool) -> Result<(), String> {
-        let tag = match parse_version(version) {
-            Some(v) if Some(v) != parse_version(current) => format!("v{}.{}.{}", v.0, v.1, v.2),
-            _ => return Err(format!("refusing to install version {version:?}")),
-        };
+    fn cargo_install(
+        &self,
+        cargo: &Path,
+        root: &Path,
+        version: &str,
+        progress: bool,
+    ) -> Result<(), String> {
+        let tag = format!("v{version}");
         let build = BuildDir::create(&self.temp)?;
-        let mut cargo = Command::new(&self.cargo);
-        cargo
+        let mut command = Command::new(cargo);
+        command
             .args(["install", "--git", REPOSITORY, "--tag", &tag])
             .args(["--locked", "--force", "--root"])
-            .arg(&self.root)
+            .arg(root)
             .arg("--target-dir")
             .arg(&build.0)
             .arg(PACKAGE)
             .stdin(Stdio::null())
             .stdout(Stdio::null());
-        let start = |e: io::Error| format!("cannot run {}: {e}", self.cargo.display());
+        let start = |e: io::Error| format!("cannot run {}: {e}", cargo.display());
         if progress {
-            let status = cargo.status().map_err(start)?;
+            let status = command.status().map_err(start)?;
             return status
                 .success()
                 .then_some(())
                 .ok_or(format!("cargo install {tag} failed ({status})"));
         }
-        let output = cargo.output().map_err(start)?;
+        let output = command.output().map_err(start)?;
         output
             .status
             .success()
             .then_some(())
             .ok_or_else(|| format!("cargo install {tag} failed: {}", tail(&output.stderr)))
+    }
+
+    /// Download the archive and SHA256SUMS into a private folder, refuse it
+    /// unless the checksum matches, unpack it, check that it is `version` and
+    /// runs, move it to `<dir>/releases/<version>` and switch `current` to it.
+    /// The release that was current stays as the one rollback copy.
+    fn script_install(
+        &self,
+        dir: &Path,
+        base: Option<&str>,
+        version: &str,
+        progress: bool,
+    ) -> Result<(), String> {
+        let asset = platform_asset()?;
+        let base = base.map_or_else(
+            || {
+                format!(
+                    "https://github.com/{}/releases/download/v{version}",
+                    github_slug()
+                )
+            },
+            |b| b.trim_end_matches('/').to_owned(),
+        );
+        let build = BuildDir::create(&self.temp)?;
+        if progress {
+            eprintln!("Downloading {asset} ({version})...");
+        }
+        let (sums, archive) = (build.0.join("SHA256SUMS"), build.0.join(asset));
+        download(&base, "SHA256SUMS", &sums)?;
+        download(&base, asset, &archive)?;
+        let listed = fs::read_to_string(&sums).map_err(|e| format!("SHA256SUMS: {e}"))?;
+        let want = listed_sum(&listed, asset).ok_or(format!("no checksum for {asset}"))?;
+        if sha256_file(&archive)? != want {
+            return Err(format!(
+                "checksum mismatch for {asset}; nothing was installed"
+            ));
+        }
+        let unpacked = build.0.join("unpacked");
+        fs::create_dir(&unpacked).map_err(|e| format!("{}: {e}", unpacked.display()))?;
+        let tar = Command::new("tar")
+            .arg("-xzf")
+            .arg(&archive)
+            .arg("-C")
+            .arg(&unpacked)
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|e| format!("cannot run tar: {e}"))?;
+        if !tar.status.success() {
+            return Err(format!("cannot unpack {asset}: {}", tail(&tar.stderr)));
+        }
+        let payload = unpacked.join(TOOL);
+        let stated = fs::read_to_string(payload.join("VERSION")).unwrap_or_default();
+        if stated.trim() != version {
+            return Err(format!("{asset} is not release {version}"));
+        }
+        let ran = Command::new(payload.join(TOOL))
+            .arg("--version")
+            .env("RUSTY_MIRROR_NO_UPDATE_CHECK", "1")
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|e| format!("the downloaded CLI does not run here: {e}"))?;
+        if !ran.status.success() || !String::from_utf8_lossy(&ran.stdout).contains(version) {
+            return Err(format!("the downloaded CLI does not report {version}"));
+        }
+        let releases = dir.join("releases");
+        let target = releases.join(version);
+        let previous = fs::canonicalize(dir.join("current")).ok();
+        if previous.is_some() && previous == fs::canonicalize(&target).ok() {
+            return Err(format!("{version} is already the current release"));
+        }
+        let _ = fs::remove_dir_all(&target); // an older unpack of the same release
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&releases)
+            .and_then(|()| fs::rename(&payload, &target))
+            .map_err(|e| format!("{}: {e}", target.display()))?;
+        swap_current(dir, &target)?;
+        prune_releases(
+            dir,
+            &previous.iter().map(PathBuf::as_path).collect::<Vec<_>>(),
+        );
+        Ok(())
+    }
+
+    /// `update --rollback` for an installer copy: switch back to the kept
+    /// folder when it is still there, else install that release again.
+    fn rollback(&self, version: &str, current: &str, progress: bool) -> Result<(), String> {
+        let Kind::Script { dir, .. } = &self.kind else {
+            return self.install(version, current, progress); // Cargo keeps no copy
+        };
+        let version = match parse_version(version) {
+            Some(v) if Some(v) != parse_version(current) => format!("{}.{}.{}", v.0, v.1, v.2),
+            _ => return Err(format!("refusing to install version {version:?}")),
+        };
+        let version = version.as_str();
+        let kept = dir.join("releases").join(version);
+        let stated = fs::read_to_string(kept.join("VERSION")).unwrap_or_default();
+        if stated.trim() != version || !kept.join(TOOL).is_file() {
+            return self.install(version, current, progress);
+        }
+        let left = fs::canonicalize(dir.join("current")).ok();
+        swap_current(dir, &kept)?;
+        prune_releases(dir, &left.iter().map(PathBuf::as_path).collect::<Vec<_>>());
+        Ok(())
     }
 }
 
@@ -626,7 +924,10 @@ pub(crate) fn command(action: Action) -> ExitCode {
         Action::Install => {
             install_latest(&store, &api_url(), Installer::locate(), CURRENT, terminal)
         }
-        Action::Check => check_report(&store, &api_url(), CURRENT),
+        Action::Check => {
+            let installer = Installer::locate().ok();
+            check_report(&store, &api_url(), CURRENT, installer.map(|i| i.kind))
+        }
         Action::Skip => skip(&store, &api_url(), CURRENT),
         Action::Auto(value) => configure(&store, Some(value), None),
         Action::Notify(value) => configure(&store, None, Some(value)),
@@ -642,13 +943,24 @@ pub(crate) fn command(action: Action) -> ExitCode {
 }
 
 /// `update --check`: exit 0 up to date, 10 update available, 1 check failed.
-fn check_report(store: &Store, url: &str, current: &str) -> Result<(Value, u8), String> {
+/// `command` names what `update` will run: itself for an installer copy, the
+/// Cargo command otherwise.
+fn check_report(
+    store: &Store,
+    url: &str,
+    current: &str,
+    kind: Option<Kind>,
+) -> Result<(Value, u8), String> {
     let state = check(store, url)?;
     let new = available(&state, current);
+    let command = new.map(|new| match kind {
+        Some(Kind::Script { .. }) => format!("{TOOL} update"),
+        _ => install_hint(kind.as_ref(), new),
+    });
     let report = json!({
         "ok": true, "current": current, "latest": state.latest,
         "updateAvailable": new.is_some(), "notes": new.and(state.notes.as_ref()),
-        "skipped": state.skipped, "command": new.map(install_hint),
+        "skipped": state.skipped, "command": command,
     });
     Ok((report, if new.is_some() { 10 } else { 0 }))
 }
@@ -716,7 +1028,7 @@ fn install_latest(
         ));
     };
     let installer =
-        installer.map_err(|e| format!("{e}; to update, run: {}", install_hint(&new)))?;
+        installer.map_err(|e| format!("{e}; to update, run: {}", install_hint(None, &new)))?;
     if terminal {
         eprintln!("{TOOL} {current} → {new}");
         for line in state.notes.iter().flat_map(|notes| notes.lines()) {
@@ -744,21 +1056,23 @@ fn install_latest(
     Ok((report, 0))
 }
 
-/// `update --rollback`: reinstall the version that ran before the last update.
+/// `update --rollback`: back to the version that ran before the last update.
+/// An installer copy switches back to its kept folder; Cargo rebuilds the tag.
 fn rollback(
     store: &Store,
     installer: Result<Installer, String>,
     current: &str,
     terminal: bool,
 ) -> Result<(Value, u8), String> {
+    let kind = installer.as_ref().ok().map(|i| &i.kind);
     let previous = store.load().previous.ok_or_else(|| {
         format!(
             "no earlier version is recorded; to install one, run: {}",
-            install_hint("X.Y.Z")
+            install_hint(kind, "X.Y.Z")
         )
     })?;
     installer?
-        .install(&previous, current, terminal)
+        .rollback(&previous, current, terminal)
         .map_err(|e| format!("{e}; {current} is unchanged"))?;
     let mut state = store.load();
     state.previous = None;
@@ -819,7 +1133,10 @@ mod tests {
             );
             fs::write(&cargo, script).unwrap();
             fs::set_permissions(&cargo, fs::Permissions::from_mode(0o755)).unwrap();
-            Installer { cargo, root, temp }
+            Installer {
+                kind: Kind::Cargo { cargo, root },
+                temp,
+            }
         }
 
         fn args(&self) -> Vec<String> {
@@ -1192,7 +1509,10 @@ mod tests {
         let dir = TestDir::new("install");
         let store = dir.store();
         let installer = dir.installer(CARGO_OK);
-        let (root, temp) = (installer.root.clone(), installer.temp.clone());
+        let Kind::Cargo { root, .. } = installer.kind.clone() else {
+            unreachable!()
+        };
+        let temp = installer.temp.clone();
         let (url, server) = serve(release("v0.4.0"));
         let (report, code) = install_latest(&store, &url, Ok(installer), "0.3.0", false).unwrap();
         server.join().unwrap();
@@ -1340,8 +1660,8 @@ mod tests {
         )
         .unwrap_err();
         server.join().unwrap();
-        assert!(error.ends_with(&install_hint("0.4.0")), "{error}");
-        assert!(install_hint("0.4.0").contains("--tag v0.4.0 --locked"));
+        assert!(error.ends_with(&install_hint(None, "0.4.0")), "{error}");
+        assert!(install_hint(None, "0.4.0").contains("--tag v0.4.0 --locked"));
     }
 
     #[test]
@@ -1397,5 +1717,248 @@ mod tests {
         fs::remove_file(dir.0.join("args")).unwrap();
         auto_install(&store, Ok(dir.installer(CARGO_OK)), "0.3.0");
         assert!(dir.args().is_empty(), "nothing installs while auto is off");
+    }
+
+    /// A release folder as the archive unpacks: a CLI that reports `reports`
+    /// and a VERSION file saying `stated`.
+    fn payload(folder: &Path, stated: &str, reports: &str) {
+        fs::create_dir_all(folder).unwrap();
+        let cli = folder.join(TOOL);
+        fs::write(&cli, format!("#!/bin/sh\necho 'rusty-mirror {reports}'\n")).unwrap();
+        fs::set_permissions(&cli, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(folder.join("VERSION"), format!("{stated}\n")).unwrap();
+    }
+
+    /// An installer copy of `version` (marker, release folder, `current` link)
+    /// and an installer whose release base is the local folder `rel`.
+    fn script_copy(dir: &TestDir, version: &str) -> (PathBuf, Installer) {
+        let inst = dir.0.join("inst");
+        fs::create_dir_all(&inst).unwrap();
+        fs::write(inst.join(INSTALLER_MARKER), "").unwrap();
+        let release = inst.join("releases").join(version);
+        payload(&release, version, version);
+        let _ = fs::remove_file(inst.join("current"));
+        symlink(&release, inst.join("current")).unwrap();
+        (inst.clone(), script_installer(dir, &inst))
+    }
+
+    fn script_installer(dir: &TestDir, inst: &Path) -> Installer {
+        let base = dir.0.join("rel").to_string_lossy().into_owned();
+        Installer {
+            kind: Kind::Script {
+                dir: inst.to_path_buf(),
+                base: Some(base),
+            },
+            temp: inst.to_path_buf(),
+        }
+    }
+
+    /// A local release folder in the layout scripts/build-release.sh publishes.
+    fn publish(dir: &TestDir, stated: &str, reports: &str, good_sum: bool) {
+        let (rel, stage) = (dir.0.join("rel"), dir.0.join("stage"));
+        let _ = fs::remove_dir_all(&rel);
+        let _ = fs::remove_dir_all(&stage);
+        payload(&stage.join(TOOL), stated, reports);
+        fs::create_dir_all(&rel).unwrap();
+        let asset = platform_asset().unwrap();
+        let tar = Command::new("tar")
+            .arg("-czf")
+            .arg(rel.join(asset))
+            .arg("-C")
+            .arg(&stage)
+            .arg(TOOL)
+            .status()
+            .unwrap();
+        assert!(tar.success());
+        let sum = if good_sum {
+            sha256_file(&rel.join(asset)).unwrap()
+        } else {
+            "0".repeat(64)
+        };
+        let sums = format!("{}  install.sh\n{sum}  {asset}\n", "1".repeat(64));
+        fs::write(rel.join("SHA256SUMS"), sums).unwrap();
+    }
+
+    fn current(inst: &Path) -> String {
+        let link = fs::read_link(inst.join("current")).unwrap();
+        link.file_name().unwrap().to_string_lossy().into_owned()
+    }
+
+    /// Release folders, and anything else the updater left in the install folder.
+    fn layout(inst: &Path) -> (Vec<String>, Vec<String>) {
+        let names = |dir: PathBuf| {
+            let mut names: Vec<String> = fs::read_dir(dir)
+                .unwrap()
+                .flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect();
+            names.sort();
+            names
+        };
+        let extra = names(inst.to_path_buf())
+            .into_iter()
+            .filter(|n| !["releases", "current", INSTALLER_MARKER].contains(&n.as_str()))
+            .collect();
+        (names(inst.join("releases")), extra)
+    }
+
+    #[test]
+    fn installer_copies_are_detected_only_while_current() {
+        let dir = TestDir::new("script-detect");
+        let (inst, installer) = script_copy(&dir, "0.3.0");
+        let real = fs::canonicalize(&inst).unwrap();
+        let exe = inst.join("releases/0.3.0").join(TOOL);
+        assert_eq!(script_dir(&exe), Some(real.clone()));
+        assert_eq!(script_dir(&inst.join("current").join(TOOL)), Some(real));
+        payload(&inst.join("releases/0.2.0"), "0.2.0", "0.2.0");
+        assert_eq!(
+            script_dir(&inst.join("releases/0.2.0").join(TOOL)),
+            None,
+            "not the current release"
+        );
+        let hint = install_hint(Some(&installer.kind), "0.4.0");
+        assert!(
+            hint.contains("/releases/latest/download/install.sh"),
+            "{hint}"
+        );
+        assert!(hint.contains("RUSTY_MIRROR_VERSION=0.4.0 sh"), "{hint}");
+        fs::remove_file(inst.join(INSTALLER_MARKER)).unwrap();
+        assert_eq!(script_dir(&exe), None, "no installer marker");
+        assert_eq!(script_dir(&dir.0.join(TOOL)), None);
+    }
+
+    #[test]
+    fn installer_update_verifies_then_swaps_and_keeps_one_previous() {
+        let dir = TestDir::new("script-update");
+        let (inst, installer) = script_copy(&dir, "0.3.0");
+        payload(&inst.join("releases/0.2.0"), "0.2.0", "0.2.0");
+        publish(&dir, "0.4.0", "0.4.0", true);
+        installer.install("v0.4.0", "0.3.0", false).unwrap();
+        assert_eq!(current(&inst), "0.4.0");
+        let ran = Command::new(inst.join("current").join(TOOL))
+            .output()
+            .unwrap();
+        assert_eq!(
+            String::from_utf8_lossy(&ran.stdout).trim(),
+            "rusty-mirror 0.4.0"
+        );
+        assert_eq!(
+            layout(&inst),
+            (vec!["0.3.0".into(), "0.4.0".into()], vec![]),
+            "one rollback copy, no download folder"
+        );
+    }
+
+    #[test]
+    fn installer_update_refuses_a_bad_checksum_version_or_download() {
+        let dir = TestDir::new("script-refuse");
+        let (inst, installer) = script_copy(&dir, "0.3.0");
+        let unchanged = (vec!["0.3.0".to_string()], vec![]);
+        publish(&dir, "0.4.0", "0.4.0", false);
+        let error = installer.install("0.4.0", "0.3.0", false).unwrap_err();
+        assert!(error.contains("checksum mismatch"), "{error}");
+        assert_eq!(
+            (current(&inst), layout(&inst)),
+            ("0.3.0".into(), unchanged.clone())
+        );
+        publish(&dir, "0.5.0", "0.5.0", true);
+        let error = installer.install("0.4.0", "0.3.0", false).unwrap_err();
+        assert!(error.contains("is not release 0.4.0"), "{error}");
+        assert_eq!(
+            (current(&inst), layout(&inst)),
+            ("0.3.0".into(), unchanged.clone())
+        );
+        publish(&dir, "0.4.0", "0.3.9", true);
+        let error = installer.install("0.4.0", "0.3.0", false).unwrap_err();
+        assert!(error.contains("does not report 0.4.0"), "{error}");
+        fs::remove_dir_all(dir.0.join("rel")).unwrap();
+        let error = installer.install("0.4.0", "0.3.0", false).unwrap_err();
+        assert!(error.contains("cannot copy SHA256SUMS"), "{error}");
+        assert_eq!((current(&inst), layout(&inst)), ("0.3.0".into(), unchanged));
+    }
+
+    #[test]
+    fn installer_rollback_switches_back_or_reinstalls_the_release() {
+        let dir = TestDir::new("script-rollback");
+        let (inst, installer) = script_copy(&dir, "0.3.0");
+        publish(&dir, "0.4.0", "0.4.0", true);
+        installer.install("0.4.0", "0.3.0", false).unwrap();
+        let store = dir.store();
+        store
+            .save(&State {
+                previous: Some("0.3.0".into()),
+                ..State::default()
+            })
+            .unwrap();
+        fs::remove_dir_all(dir.0.join("rel")).unwrap(); // the kept copy needs no download
+        let (report, _) = rollback(&store, Ok(installer), "0.4.0", false).unwrap();
+        assert_eq!(report["installed"], json!("0.3.0"));
+        assert_eq!(current(&inst), "0.3.0");
+        assert_eq!(
+            layout(&inst).0,
+            ["0.3.0", "0.4.0"],
+            "the version left is kept"
+        );
+
+        prune_releases(&inst, &[]);
+        publish(&dir, "0.4.0", "0.4.0", true);
+        script_installer(&dir, &inst)
+            .rollback("0.4.0", "0.3.0", false)
+            .unwrap();
+        assert_eq!(current(&inst), "0.4.0", "no kept copy: verified download");
+        assert_eq!(
+            layout(&inst),
+            (vec!["0.3.0".into(), "0.4.0".into()], vec![])
+        );
+    }
+
+    #[test]
+    fn replaced_release_goes_after_one_good_run_or_a_week() {
+        let dir = TestDir::new("script-settle");
+        let (inst, installer) = script_copy(&dir, "0.3.0");
+        publish(&dir, "0.4.0", "0.4.0", true);
+        installer.install("0.4.0", "0.3.0", false).unwrap();
+        let (old, new) = (
+            inst.join("releases/0.3.0").join(TOOL),
+            inst.join("current").join(TOOL),
+        );
+        settle_at(&old, true, now());
+        assert_eq!(layout(&inst).0.len(), 2, "an older process removes nothing");
+        settle_at(&new, false, now());
+        assert_eq!(layout(&inst).0.len(), 2, "kept until the new one has run");
+        settle_at(&new, false, now() + ROLLBACK_KEEP);
+        assert_eq!(layout(&inst).0, ["0.4.0"], "at most a week");
+
+        let other = TestDir::new("script-settle-ok");
+        let (inst, _) = script_copy(&other, "0.3.0");
+        let installer = Installer {
+            kind: Kind::Script {
+                dir: inst.clone(),
+                base: Some(dir.0.join("rel").to_string_lossy().into_owned()),
+            },
+            temp: inst.clone(),
+        };
+        installer.install("0.4.0", "0.3.0", false).unwrap();
+        settle_at(&inst.join("current").join(TOOL), true, now());
+        assert_eq!(layout(&inst).0, ["0.4.0"], "one good run");
+    }
+
+    #[test]
+    fn sha256sums_lines_are_matched_by_exact_name() {
+        let sums = format!(
+            "{a}  rusty-mirror-linux-x86_64.tar.gz\n{b} *rusty-mirror-darwin-universal.tar.gz\nbad  install.sh\n",
+            a = "a".repeat(64),
+            b = "B".repeat(64)
+        );
+        assert_eq!(
+            listed_sum(&sums, "rusty-mirror-darwin-universal.tar.gz"),
+            Some("b".repeat(64))
+        );
+        assert_eq!(
+            listed_sum(&sums, "rusty-mirror-linux-x86_64.tar.gz"),
+            Some("a".repeat(64))
+        );
+        assert_eq!(listed_sum(&sums, "install.sh"), None, "not a SHA-256");
+        assert_eq!(listed_sum(&sums, "rusty-mirror-linux"), None);
     }
 }

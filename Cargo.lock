@@ -2634,7 +2634,7 @@ checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
 name = "rusty-mirror"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "libc",
@@ -2646,7 +2646,7 @@ dependencies = [
 
 [[package]]
 name = "rusty-mirror-cli"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "clap",
@@ -2655,11 +2655,12 @@ dependencies = [
  "rusty-mirror-core",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
 name = "rusty-mirror-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "libc",
  "serde",
