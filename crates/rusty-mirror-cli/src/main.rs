@@ -328,9 +328,8 @@ fn capture(t: &Target, out: &Path) -> Result<ExitCode, String> {
         .decode(result["png"].as_str().ok_or("capture returned no image")?)
         .map_err(|e| e.to_string())?;
     let stats = analyse(&png)?;
-    if let Some(parent) = out.parent().filter(|p| !p.as_os_str().is_empty()) {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
+    // Captures contain whatever the app shows: private directory, private file.
+    paths::ensure_private_parent(out)?;
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)

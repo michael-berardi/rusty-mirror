@@ -7,6 +7,8 @@
 #   scripts/e2e.sh            # build + test
 #   KEEP_SHOTS=dir scripts/e2e.sh   # also copy captures to dir for a look
 set -euo pipefail
+# Everything this script creates (temp dir, data, logs, kept captures) is private.
+umask 077
 
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 [ "$(uname)" = Darwin ] || { echo "e2e: native capture is macOS-only for now" >&2; exit 2; }
