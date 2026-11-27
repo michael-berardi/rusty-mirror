@@ -14,7 +14,23 @@ still have the app's full permissions.
 
 ## Install
 
-Install the CLI with Cargo:
+Install the CLI in one line on macOS 14+ or Linux x86_64:
+
+```sh
+curl -fsSL https://github.com/michael-berardi/rusty-mirror/releases/latest/download/install.sh | sh
+```
+
+The installer fetches `SHA256SUMS` and checks the archive's SHA-256 before it
+unpacks anything. It installs the CLI into `~/.rusty-mirror/releases/<version>`
+and writes a shim to `~/.local/bin/rusty-mirror`; add that directory to your
+PATH if needed. It will not replace a `rusty-mirror` it did not install. To
+change the destination or select a build, set `RUSTY_MIRROR_HOME`,
+`RUSTY_MIRROR_BIN_DIR`, `RUSTY_MIRROR_VERSION` (default: latest) or
+`RUSTY_MIRROR_RELEASE_BASE` (a local release directory, an `http(s)://` or
+`file://` URL, used by tests). The macOS build is a universal binary, Developer ID signed and
+notarized; the Linux x86_64 build is a plain binary.
+
+Alternatively, install the CLI with Cargo:
 
 ```sh
 cargo install --git https://github.com/michael-berardi/rusty-mirror --tag v0.3.0 --locked rusty-mirror-cli
@@ -25,7 +41,8 @@ Use a current stable Rust toolchain and Tauri 2.5 or later. The workspace
 manifest declares Rust 1.80, but the locked dependencies include crates
 requiring Rust 1.88; Rust 1.80 is not sufficient for this checkout.
 
-The CLI needs a mirror-enabled build of your app. Add the optional plugin:
+The CLI needs a mirror-enabled build of your app. Add the optional library
+plugin to your Tauri crate:
 
 ```toml
 # src-tauri/Cargo.toml
@@ -104,9 +121,9 @@ See the [security model](docs/security.md) and [reporting policy](SECURITY.md).
 
 | Platform | Status |
 | --- | --- |
-| macOS 14+ | Native mirror and `WKWebView.takeSnapshot` capture; no Screen Recording permission needed |
-| Linux | Core and CLI use Unix APIs; plugin and capture support are not validated here |
-| Windows | Unsupported: no socket transport |
+| macOS 14+ | Native mirror and `WKWebView.takeSnapshot` capture; no Screen Recording permission needed. Signed, notarized universal CLI download |
+| Linux x86_64 | CLI download; core and CLI use Unix APIs, but plugin and capture support are not validated here |
+| Windows | Unsupported: no socket transport, no Windows installer |
 
 ## Updates
 
@@ -134,7 +151,13 @@ cargo clippy --workspace --all-targets --features tally/mirror-debug -j4
 
 The frontend build is required because the default workspace includes Tally.
 On macOS, `CARGO_BUILD_JOBS=4 scripts/e2e.sh` builds and **launches** the example
-app off-screen to test the native workflow. See [CONTRIBUTING.md](CONTRIBUTING.md).
+app off-screen to test the native workflow. `cargo test -p rusty-mirror-cli
+--test install` exercises the installer against a local release directory with
+a temporary HOME. Release assets are built on a Mac with
+`scripts/build-release.sh`, which takes the Developer ID identity from
+`RUSTY_MIRROR_SIGNING_IDENTITY` and the notarytool keychain profile from
+`NOTARY_PROFILE`; neither belongs in a committed file. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

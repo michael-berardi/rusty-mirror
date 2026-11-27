@@ -11,6 +11,15 @@
 - CLI: `update --check` (exit 10 when an update is available), `--skip`,
   `--auto on|off|status` (off by default) and `--notify on|off|status`.
 - Docs: `docs/updates.md` and `PRIVACY.md`.
+- Added a one-line installer with SHA-256 verification, a per-tool install
+  folder and a `~/.local/bin` shim. It refuses to replace a `rusty-mirror` it
+  did not install; version and release base (local directory or `http(s)`/
+  `file://` URL) can be overridden by environment. Linux installs require
+  x86_64.
+- Added a release builder for a Developer ID signed, notarized macOS universal
+  binary and a Linux x86_64 binary, plus SHA256SUMS.
+- Added an installer integration test that runs the installer over a local
+  release directory with a temporary HOME.
 
 ## 0.2.0 — 2026-10-31
 
