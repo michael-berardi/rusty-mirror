@@ -606,3 +606,71 @@ fn installed_cli_updates_itself_from_a_verified_release() {
     );
     assert_eq!(releases(&tool), ["99.0.0", "99.1.0"]);
 }
+
+#[test]
+fn copies_installed_by_0_3_0_keep_updating_in_place() {
+    let Some(asset) = asset_name() else {
+        eprintln!("skipped: no installer asset for this platform");
+        return;
+    };
+    let temp = TempTree::new();
+    let repo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let release = temp.child("release");
+    make_release(&repo, &release, asset);
+    let (home, bin) = (temp.child("home"), temp.child("bin"));
+
+    // The 0.3.0 layout: ~/.rusty-mirror with the marker, a release, `current` and a marked shim.
+    let legacy = home.join(".rusty-mirror");
+    let old = legacy.join("releases/0.3.0");
+    fs::create_dir_all(&old).unwrap();
+    fs::write(
+        legacy.join(".installed-by-rusty-mirror"),
+        "Created by the rusty-mirror installer.\n",
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(&old, legacy.join("current")).unwrap();
+    fs::create_dir_all(&bin).unwrap();
+    fs::write(
+        bin.join("rusty-mirror"),
+        format!(
+            "#!/bin/sh\n{MARKER}\nexec \"{}/current/rusty-mirror\" \"$@\"\n",
+            legacy.display()
+        ),
+    )
+    .unwrap();
+    let installer = |legacy_env: bool| {
+        let mut command = Command::new("sh");
+        command
+            .arg(release.join("install.sh"))
+            .env("HOME", &home)
+            .env("RUSTY_MIRROR_BIN_DIR", &bin)
+            .env("RUSTY_MIRROR_RELEASE_BASE", &release)
+            .env_remove("RUSTY_MIRROR_INSTALL_DIR")
+            .env_remove("RUSTY_MIRROR_HOME")
+            .env_remove("RUSTY_MIRROR_VERSION")
+            .env_remove("XDG_DATA_HOME")
+            .stdin(Stdio::null());
+        if legacy_env {
+            // As 0.3.0's `update` runs the new installer.
+            command
+                .env("RUSTY_MIRROR_HOME", &legacy)
+                .env("RUSTY_MIRROR_VERSION", VERSION);
+        }
+        let out = command.output().unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    installer(true);
+    assert_installed(&bin);
+    assert_eq!(releases(&legacy), ["0.3.0".to_string(), VERSION.into()]);
+    installer(false); // a re-run of the one-line installer
+    assert_installed(&bin);
+    assert_eq!(releases(&legacy), [VERSION.to_string()]);
+    assert!(
+        !home.join(".local/share/rusty-mirror").exists(),
+        "no second copy"
+    );
+}

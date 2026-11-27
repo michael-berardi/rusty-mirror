@@ -64,8 +64,9 @@ comes back.
 `update` installs the new release the same way you installed the CLI.
 
 **With the installer** (`curl … install.sh | sh`), the CLI lives in
-`~/.local/share/rusty-mirror/releases/<version>/`, and the `current` link
-there points at the version in use. `update`:
+`~/.local/share/rusty-mirror/releases/<version>/` (a copy installed by 0.3.0
+stays in `~/.rusty-mirror/releases/`), and the `current` link there points at
+the version in use. `update`:
 
 1. downloads the release's `SHA256SUMS` and this machine's archive
    (`rusty-mirror-darwin-universal.tar.gz` or

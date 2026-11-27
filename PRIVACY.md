@@ -41,8 +41,9 @@ your app sends; Rusty Mirror does not proxy, log or report it.
 - The Tally example's counter in its app data directory or `$TALLY_DATA`: a
   0600 file in a 0700 directory.
 - The installer copy in `~/.local/share/rusty-mirror/` (0700, or
-  `$RUSTY_MIRROR_INSTALL_DIR`): the release in use and at most one earlier
-  release for `update --rollback`, plus the shim `~/.local/bin/rusty-mirror`.
+  `$RUSTY_MIRROR_INSTALL_DIR`; a copy installed by 0.3.0 stays in
+  `~/.rusty-mirror/`): the release in use and at most one earlier release for
+  `update --rollback`, plus the shim `~/.local/bin/rusty-mirror`.
 - The update check's result in `update.json` (0600) in the platform cache
   folder: `~/Library/Caches/rusty-mirror/` on macOS, `~/.cache/rusty-mirror/`
   elsewhere. Automatic installs also write `update.log` there, capped at

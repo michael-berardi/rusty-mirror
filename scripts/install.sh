@@ -6,7 +6,8 @@
 # installer did not create is never replaced. One earlier release is kept for
 # `rusty-mirror update --rollback`; older ones are removed. `rusty-mirror update` later
 # installs new releases the same way.
-# Environment: RUSTY_MIRROR_INSTALL_DIR (default ~/.local/share/rusty-mirror),
+# Environment: RUSTY_MIRROR_INSTALL_DIR (default ~/.local/share/rusty-mirror, or the
+# ~/.rusty-mirror folder of a copy installed by 0.3.0),
 # RUSTY_MIRROR_BIN_DIR (default ~/.local/bin), RUSTY_MIRROR_VERSION (default: latest,
 # e.g. 0.4.0), RUSTY_MIRROR_RELEASE_BASE (override with a local directory, http(s)/file
 # URL, used by tests).
@@ -14,7 +15,11 @@ set -eu
 
 REPO="michael-berardi/rusty-mirror"
 MARKER='# rusty-mirror installer shim'
-HOME_DIR="${RUSTY_MIRROR_INSTALL_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/rusty-mirror}"
+# 0.3.0 installed into ~/.rusty-mirror (its RUSTY_MIRROR_HOME); such a copy keeps updating in place.
+LEGACY_DIR="${RUSTY_MIRROR_HOME:-$HOME/.rusty-mirror}"
+if [ -n "${RUSTY_MIRROR_INSTALL_DIR:-}" ]; then HOME_DIR="$RUSTY_MIRROR_INSTALL_DIR"
+elif [ -f "$LEGACY_DIR/.installed-by-rusty-mirror" ]; then HOME_DIR="$LEGACY_DIR"
+else HOME_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/rusty-mirror"; fi
 BIN_DIR="${RUSTY_MIRROR_BIN_DIR:-$HOME/.local/bin}"
 case "$HOME_DIR" in /*) ;; *) HOME_DIR="$(pwd)/$HOME_DIR" ;; esac
 case "$BIN_DIR" in /*) ;; *) BIN_DIR="$(pwd)/$BIN_DIR" ;; esac
